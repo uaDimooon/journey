@@ -5,6 +5,7 @@ import { useSelectionStore } from "../../state/selectionStore";
 import { useAuthStore } from "../../state/authStore";
 import { incomingNodes } from "../../domain/graph";
 import { STATUS_HEX, STATUS_LABELS, STATUS_ORDER, nodeStatus } from "../../domain/status";
+import { linkify } from "../../lib/linkify";
 import { TraitEditor } from "../traits/TraitEditor";
 import { OverviewList } from "./OverviewList";
 import { StatusDot } from "./StatusDot";
@@ -155,10 +156,14 @@ export function DetailPanel() {
               <ul className="flex flex-col gap-1">
                 {subgoals.map((s) => (
                   <li key={s.id}>
-                    <button
-                      type="button"
+                    <div
+                      role="button"
+                      tabIndex={0}
                       onClick={() => select(s.id)}
-                      className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-neutral-800"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") select(s.id);
+                      }}
+                      className="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-neutral-800"
                     >
                       <StatusDot node={s} />
                       <span
@@ -168,9 +173,9 @@ export function DetailPanel() {
                             : ""
                         }
                       >
-                        {s.name}
+                        {linkify(s.name)}
                       </span>
-                    </button>
+                    </div>
                   </li>
                 ))}
               </ul>

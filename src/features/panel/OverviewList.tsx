@@ -8,6 +8,7 @@ import { useSelectionStore } from "../../state/selectionStore";
 import { useCameraStore } from "../../state/cameraStore";
 import { incomingNodes, outgoingNodes } from "../../domain/graph";
 import { nodeStatus } from "../../domain/status";
+import { linkify } from "../../lib/linkify";
 import type { GraphNode, Id } from "../../domain/types";
 import { StatusDot } from "./StatusDot";
 
@@ -58,10 +59,14 @@ export function OverviewList() {
           ) : (
             <span className="h-5 w-5 shrink-0" />
           )}
-          <button
-            type="button"
+          <div
+            role="button"
+            tabIndex={0}
             onClick={() => navigate(node)}
-            className="flex flex-1 items-center gap-2 py-1 pr-2 text-left text-sm"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") navigate(node);
+            }}
+            className="flex flex-1 cursor-pointer items-center gap-2 py-1 pr-2 text-left text-sm"
           >
             <StatusDot node={node} />
             <span
@@ -69,12 +74,12 @@ export function OverviewList() {
                 nodeStatus(node) === "done" ? "text-neutral-500 line-through" : ""
               }`}
             >
-              {node.name}
+              {linkify(node.name)}
               {node.kind === "start" && (
                 <span className="ml-1 text-xs text-neutral-500">(you)</span>
               )}
             </span>
-          </button>
+          </div>
         </div>
         {isOpen && children.length > 0 && (
           <ul>{children.map((c) => renderItem(c, depth + 1))}</ul>
