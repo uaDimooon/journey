@@ -39,7 +39,14 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
   graph: initialGraph(),
   hydrated: false,
 
-  setGraph: (graph) => set({ graph, hydrated: true }),
+  setGraph: (graph) => {
+    // Normalize legacy nodes that predate the status field.
+    const nodes: Graph["nodes"] = {};
+    for (const [id, node] of Object.entries(graph.nodes)) {
+      nodes[id] = { ...node, status: node.status ?? "next-up" };
+    }
+    set({ graph: { nodes, edges: graph.edges }, hydrated: true });
+  },
 
   addGoal: (pos, size) => {
     const { graph } = get();
