@@ -14,6 +14,7 @@ import {
   type Viewport,
 } from "../domain/geometry";
 import { hexToNumber } from "../domain/color";
+import { STATUS_HEX, nodeStatus } from "../domain/status";
 import type { GraphNode, Vec2 } from "../domain/types";
 import { useCameraStore } from "../state/cameraStore";
 import { useGraphStore } from "../state/graphStore";
@@ -282,8 +283,10 @@ export class CanvasRenderer {
         x: p2.x - Math.cos(angle) * r2,
         y: p2.y - Math.sin(angle) * r2,
       };
+      // Arrow color reflects the status of the subgoal it starts from.
+      const color = hexToNumber(STATUS_HEX[nodeStatus(from)]);
       g.moveTo(p1.x, p1.y).lineTo(end.x, end.y);
-      g.stroke({ width: 1.5, color: 0x5b6472, alpha: 0.9 });
+      g.stroke({ width: 1.5, color, alpha: 0.95 });
 
       // Arrowhead.
       const ah = 9;
@@ -297,7 +300,7 @@ export class CanvasRenderer {
           end.y - ah * Math.sin(angle + Math.PI / 7),
         )
         .lineTo(end.x, end.y)
-        .fill({ color: 0x5b6472 });
+        .fill({ color });
     }
   }
 
@@ -324,6 +327,11 @@ export class CanvasRenderer {
       gfx.circle(p.x, p.y, r).fill({ color: hexToNumber(node.color) });
       if (node.kind === "start") {
         gfx.circle(p.x, p.y, r).stroke({ width: 2, color: 0xffffff, alpha: 0.8 });
+      } else {
+        // Status ring (grey / yellow / green).
+        gfx
+          .circle(p.x, p.y, r)
+          .stroke({ width: 2.5, color: hexToNumber(STATUS_HEX[nodeStatus(node)]) });
       }
       layer.addChild(gfx);
 

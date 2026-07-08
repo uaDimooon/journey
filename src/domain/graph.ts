@@ -18,6 +18,7 @@ export function createStartNode(name = "You"): GraphNode {
     description: "This is you — the starting point of your journey.",
     color: "#7dd3fc",
     traits: [],
+    status: "next-up",
     pos: { x: 0, y: 0 },
     size: BASE_NODE_RADIUS * 1.4,
   };
@@ -31,6 +32,7 @@ export function createGoal(pos: Vec2, size: number, name = "New goal"): GraphNod
     description: "",
     color: randomColor(),
     traits: [],
+    status: "next-up",
     pos,
     size,
   };
