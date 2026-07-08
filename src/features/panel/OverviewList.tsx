@@ -7,7 +7,9 @@ import { useGraphStore } from "../../state/graphStore";
 import { useSelectionStore } from "../../state/selectionStore";
 import { useCameraStore } from "../../state/cameraStore";
 import { incomingNodes, outgoingNodes } from "../../domain/graph";
+import { nodeStatus } from "../../domain/status";
 import type { GraphNode, Id } from "../../domain/types";
+import { StatusDot } from "./StatusDot";
 
 export function OverviewList() {
   const graph = useGraphStore((s) => s.graph);
@@ -61,11 +63,12 @@ export function OverviewList() {
             onClick={() => navigate(node)}
             className="flex flex-1 items-center gap-2 py-1 pr-2 text-left text-sm"
           >
+            <StatusDot node={node} />
             <span
-              className="inline-block h-3 w-3 shrink-0 rounded-full"
-              style={{ background: node.color }}
-            />
-            <span className="truncate">
+              className={`truncate ${
+                nodeStatus(node) === "done" ? "text-neutral-500 line-through" : ""
+              }`}
+            >
               {node.name}
               {node.kind === "start" && (
                 <span className="ml-1 text-xs text-neutral-500">(you)</span>
