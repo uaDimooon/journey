@@ -9,6 +9,9 @@ export interface Vec2 {
 
 export type NodeKind = "start" | "goal";
 
+/** Progress state of a goal. */
+export type GoalStatus = "next-up" | "in-progress" | "done";
+
 export interface GraphNode {
   id: Id;
   kind: NodeKind;
@@ -16,6 +19,8 @@ export interface GraphNode {
   description: string;
   color: string;
   traits: string[];
+  /** Progress status. Defaults to "next-up" for new goals. */
+  status: GoalStatus;
   /** World-space position (canvas coordinates). */
   pos: Vec2;
   /** World-space radius. Derived from the zoom level at placement time. */

@@ -4,6 +4,7 @@ import { useGraphStore } from "../../state/graphStore";
 import { useSelectionStore } from "../../state/selectionStore";
 import { useAuthStore } from "../../state/authStore";
 import { incomingNodes } from "../../domain/graph";
+import { STATUS_HEX, STATUS_LABELS, STATUS_ORDER, nodeStatus } from "../../domain/status";
 import { TraitEditor } from "../traits/TraitEditor";
 import { OverviewList } from "./OverviewList";
 
@@ -77,6 +78,34 @@ export function DetailPanel() {
               className="w-full rounded bg-neutral-800 px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-sky-500"
             />
           </div>
+
+          {node.kind === "goal" && (
+            <div>
+              <label className="mb-1 block text-xs uppercase tracking-wide text-neutral-500">
+                Status
+              </label>
+              <div className="flex gap-1">
+                {STATUS_ORDER.map((s) => {
+                  const active = nodeStatus(node) === s;
+                  return (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => updateNode(node.id, { status: s })}
+                      className="flex-1 rounded px-2 py-1 text-xs font-medium transition-colors"
+                      style={
+                        active
+                          ? { background: STATUS_HEX[s], color: "#0f1115" }
+                          : { background: "#262626", color: "#a3a3a3" }
+                      }
+                    >
+                      {STATUS_LABELS[s]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="mb-1 block text-xs uppercase tracking-wide text-neutral-500">
