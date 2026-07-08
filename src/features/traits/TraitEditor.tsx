@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useGraphStore } from "../../state/graphStore";
+import { linkify } from "../../lib/linkify";
 import type { Id } from "../../domain/types";
 
 export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: string[] }) {
@@ -27,7 +28,7 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: string[] }
             key={t}
             className="inline-flex items-center gap-1 rounded-full bg-neutral-700 px-2 py-0.5 text-xs"
           >
-            {t}
+            {linkify(t)}
             <button
               type="button"
               onClick={() => removeTrait(nodeId, t)}

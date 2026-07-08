@@ -15,6 +15,7 @@ import {
 } from "../domain/geometry";
 import { hexToNumber } from "../domain/color";
 import { STATUS_HEX, nodeStatus } from "../domain/status";
+import { stripMarkdownLinks } from "../lib/linkify";
 import type { GraphNode, Vec2 } from "../domain/types";
 import { useCameraStore } from "../state/cameraStore";
 import { useGraphStore } from "../state/graphStore";
@@ -338,7 +339,7 @@ export class CanvasRenderer {
       // Level-of-detail: only label nodes that are big enough on screen.
       if (r >= 12) {
         const label = new Text({
-          text: node.name,
+          text: stripMarkdownLinks(node.name),
           style: {
             fill: 0xe6e6e6,
             fontSize: 12,
