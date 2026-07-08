@@ -7,6 +7,7 @@ import { incomingNodes } from "../../domain/graph";
 import { STATUS_HEX, STATUS_LABELS, STATUS_ORDER, nodeStatus } from "../../domain/status";
 import { TraitEditor } from "../traits/TraitEditor";
 import { OverviewList } from "./OverviewList";
+import { StatusDot } from "./StatusDot";
 
 export function DetailPanel() {
   const graph = useGraphStore((s) => s.graph);
@@ -159,11 +160,16 @@ export function DetailPanel() {
                       onClick={() => select(s.id)}
                       className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-neutral-800"
                     >
+                      <StatusDot node={s} />
                       <span
-                        className="inline-block h-3 w-3 rounded-full"
-                        style={{ background: s.color }}
-                      />
-                      {s.name}
+                        className={
+                          nodeStatus(s) === "done"
+                            ? "text-neutral-500 line-through"
+                            : ""
+                        }
+                      >
+                        {s.name}
+                      </span>
                     </button>
                   </li>
                 ))}
