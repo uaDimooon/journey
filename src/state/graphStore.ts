@@ -19,6 +19,8 @@ interface GraphState {
   setGraph: (graph: Graph) => void;
   /** Create a goal at a world position with a world-space size. Returns id or null. */
   addGoal: (pos: Vec2, size: number) => Id | null;
+  /** Move a node to a new world position. */
+  moveNode: (id: Id, pos: Vec2) => void;
   updateNode: (id: Id, patch: Partial<Omit<GraphNode, "id" | "kind">>) => void;
   removeNode: (id: Id) => void;
   /** Attempt to link from -> to. Returns an error message, or null on success. */
@@ -51,6 +53,18 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
         });
         return goal.id;
       },
+
+      moveNode: (id, pos) =>
+        set((s) => {
+          const node = s.graph.nodes[id];
+          if (!node) return s;
+          return {
+            graph: {
+              ...s.graph,
+              nodes: { ...s.graph.nodes, [id]: { ...node, pos } },
+            },
+          };
+        }),
 
       updateNode: (id, patch) =>
         set((s) => {
