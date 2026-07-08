@@ -33,6 +33,7 @@ export class CanvasRenderer {
   private moved = false;
   private lastX = 0;
   private lastY = 0;
+  private draggingId: string | null = null;
   private initialized = false;
   private destroyed = false;
 
@@ -106,25 +107,55 @@ export class CanvasRenderer {
       this.lastX = e.offsetX;
       this.lastY = e.offsetY;
       canvas.setPointerCapture(e.pointerId);
+
+      // Grabbing a node (outside of linking mode) starts a move-drag and
+      // selects it; empty space starts a pan.
+      const linking = useSelectionStore.getState().linkingFrom;
+      if (!linking) {
+        const node = this.hitTest({ x: e.offsetX, y: e.offsetY });
+        if (node) {
+          this.draggingId = node.id;
+          useSelectionStore.getState().select(node.id);
+          canvas.style.cursor = "grabbing";
+        }
+      }
     });
 
     canvas.addEventListener("pointermove", (e) => {
-      if (!this.pointerDown) return;
       const dx = e.offsetX - this.lastX;
       const dy = e.offsetY - this.lastY;
+
+      // Hover feedback when idle.
+      if (!this.pointerDown) {
+        const overNode = this.hitTest({ x: e.offsetX, y: e.offsetY });
+        canvas.style.cursor = overNode ? "grab" : "default";
+        return;
+      }
+
       if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) {
         this.moved = true;
       }
       this.lastX = e.offsetX;
       this.lastY = e.offsetY;
-      if (this.moved) {
+
+      if (this.draggingId) {
+        // Move the grabbed node, snapping to the current fine grid.
+        const cam = this.cam;
+        const world = screenToWorld({ x: e.offsetX, y: e.offsetY }, cam, this.vp);
+        const pos = snapWorldToGrid(world, cam.zoom);
+        useGraphStore.getState().moveNode(this.draggingId, pos);
+      } else if (this.moved) {
         useCameraStore.getState().panBy(dx, dy);
       }
     });
 
     canvas.addEventListener("pointerup", (e) => {
+      const wasDragging = this.draggingId !== null;
       this.pointerDown = false;
-      if (!this.moved) {
+      this.draggingId = null;
+      canvas.style.cursor = "default";
+      // Only treat as a click if it wasn't a node move-drag.
+      if (!this.moved && !wasDragging) {
         this.handleClick(e.offsetX, e.offsetY);
       }
     });
