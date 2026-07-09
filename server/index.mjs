@@ -14,15 +14,22 @@ import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
 
-const isProd = process.env.NODE_ENV === "production";
+// Environment: "development" (default), "test", or "production".
+// JOURNEY_ENV takes precedence, then NODE_ENV.
+const env = process.env.JOURNEY_ENV || process.env.NODE_ENV || "development";
+const isProd = env === "production";
+const isTest = env === "test";
+
 // --- Database ---------------------------------------------------------------
 // Store the DB OUTSIDE the repo by default so `git clean` / `rm -rf` inside the
-// working tree can't wipe it. Override with the JOURNEY_DB_PATH env var.
+// working tree can't wipe it. Test mode uses a dedicated DB so automated tests
+// never touch real data. Override the path with JOURNEY_DB_PATH.
+const defaultDbName = isTest ? "journey-test.db" : "journey.db";
 const dbPath =
   process.env.JOURNEY_DB_PATH ||
-  path.join(os.homedir(), ".journey", "journey.db");
+  path.join(os.homedir(), ".journey", defaultDbName);
 fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-console.log(`Journey DB: ${dbPath}`);
+console.log(`Journey DB (${env}): ${dbPath}`);
 
 const db = new DatabaseSync(dbPath);
 db.exec("PRAGMA journal_mode = WAL;");
@@ -275,7 +282,11 @@ app.delete("/api/journeys/:id", requireUser, (req, res) => {
   res.json({ ok: true });
 });
 
-const PORT = process.env.PORT ? Number(process.env.PORT) : 8787;
+const PORT = process.env.PORT
+  ? Number(process.env.PORT)
+  : isTest
+    ? 8788
+    : 8787;
 app.listen(PORT, () => {
   console.log(`Journey API listening on http://localhost:${PORT}`);
 });

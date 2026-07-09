@@ -34,9 +34,22 @@ npm run preview  # preview the production build
 npm run lint     # oxlint
 ```
 
+### Test mode (isolated database)
+
+To develop/test without touching your real data, run a dedicated test stack. It
+uses a separate DB (`~/.journey/journey-test.db`) and separate ports:
+
+```bash
+npm run server:test   # test API on http://localhost:8788 (journey-test.db)
+npm run dev:test      # test web app on http://localhost:5174 (proxies to :8788)
+```
+
+Environment overrides: `JOURNEY_ENV=test`, `JOURNEY_DB_PATH=/path/to.db`,
+`PORT`, and `VITE_API_TARGET`.
+
 On first run, create an account (sign up), then your goals are saved to your
 account and restored on any browser after logging in. The SQLite database lives
-at `server/journey.db` (gitignored).
+outside the repo at `~/.journey/journey.db` (override with `JOURNEY_DB_PATH`).
 
 ## How it works (MVP)
 
