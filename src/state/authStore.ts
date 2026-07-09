@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { api, type AuthUser } from "../api/client";
 import { useGraphStore } from "./graphStore";
 import { useSelectionStore } from "./selectionStore";
+import { useJourneysStore } from "./journeysStore";
 
 interface AuthState {
   user: AuthUser | null;
@@ -66,6 +67,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
     useGraphStore.getState().reset();
     useSelectionStore.getState().select(null);
+    useJourneysStore.getState().clear();
     set({ user: null });
   },
 

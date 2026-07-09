@@ -38,6 +38,12 @@ export function createGoal(pos: Vec2, size: number, name = "New goal"): GraphNod
   };
 }
 
+/** A fresh graph containing just the start node. */
+export function createInitialGraph(): Graph {
+  const start = createStartNode();
+  return { nodes: { [start.id]: start }, edges: {} };
+}
+
 /** True if a node already sits at (approximately) this world position. */
 export function isPositionOccupied(graph: Graph, pos: Vec2, radius: number): boolean {
   return Object.values(graph.nodes).some(

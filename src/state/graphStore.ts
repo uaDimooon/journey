@@ -6,17 +6,19 @@ import { create } from "zustand";
 import type { Graph, GraphNode, Id, Vec2 } from "../domain/types";
 import {
   createGoal,
-  createStartNode,
+  createInitialGraph,
   isPositionOccupied,
   tryCreateEdge,
 } from "../domain/graph";
 
 interface GraphState {
   graph: Graph;
-  /** True once the graph has been loaded from the server for the current user. */
+  /** True once a journey's graph has been loaded from the server. */
   hydrated: boolean;
-  /** Replace the whole graph (e.g. after loading from the server). */
-  setGraph: (graph: Graph) => void;
+  /** The id of the journey this graph belongs to (null until loaded). */
+  journeyId: string | null;
+  /** Replace the whole graph for a given journey (e.g. after loading). */
+  setGraph: (graph: Graph, journeyId: string) => void;
   /** Create a goal at a world position with a world-space size. Returns id or null. */
   addGoal: (pos: Vec2, size: number) => Id | null;
   /** Move a node to a new world position. */
@@ -30,22 +32,18 @@ interface GraphState {
   reset: () => void;
 }
 
-function initialGraph(): Graph {
-  const start = createStartNode();
-  return { nodes: { [start.id]: start }, edges: {} };
-}
-
 export const useGraphStore = create<GraphState>()((set, get) => ({
-  graph: initialGraph(),
+  graph: createInitialGraph(),
   hydrated: false,
+  journeyId: null,
 
-  setGraph: (graph) => {
+  setGraph: (graph, journeyId) => {
     // Normalize legacy nodes that predate the status field.
     const nodes: Graph["nodes"] = {};
     for (const [id, node] of Object.entries(graph.nodes)) {
       nodes[id] = { ...node, status: node.status ?? "next-up" };
     }
-    set({ graph: { nodes, edges: graph.edges }, hydrated: true });
+    set({ graph: { nodes, edges: graph.edges }, hydrated: true, journeyId });
   },
 
   addGoal: (pos, size) => {
@@ -146,5 +144,5 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
           };
         }),
 
-      reset: () => set({ graph: initialGraph(), hydrated: false }),
+      reset: () => set({ graph: createInitialGraph(), hydrated: false, journeyId: null }),
 }));
