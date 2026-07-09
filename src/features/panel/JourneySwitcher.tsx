@@ -2,14 +2,17 @@
  *  Uses inline controls (no window.prompt/confirm, which some embedded
  *  browsers don't support). */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useJourneysStore } from "../../state/journeysStore";
+import { useGraphStore } from "../../state/graphStore";
+import { downloadJourney, parseJourneyFile } from "../../lib/journeyFile";
 
 export function JourneySwitcher() {
   const journeys = useJourneysStore((s) => s.journeys);
   const currentId = useJourneysStore((s) => s.currentId);
   const open = useJourneysStore((s) => s.open);
   const create = useJourneysStore((s) => s.create);
+  const importJourney = useJourneysStore((s) => s.importJourney);
   const rename = useJourneysStore((s) => s.rename);
   const remove = useJourneysStore((s) => s.remove);
 
@@ -17,6 +20,8 @@ export function JourneySwitcher() {
 
   const [mode, setMode] = useState<"idle" | "rename" | "confirmDelete">("idle");
   const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const startRename = () => {
     if (!current) return;
@@ -40,6 +45,23 @@ export function JourneySwitcher() {
     if (!current) return;
     await remove(current.id);
     setMode("idle");
+  };
+
+  const onExport = () => {
+    if (!current) return;
+    // Export the current in-memory graph (includes unsaved edits).
+    downloadJourney(current.name, useGraphStore.getState().graph);
+  };
+
+  const onImportFile = async (file: File) => {
+    setError(null);
+    try {
+      const text = await file.text();
+      const { name, graph } = parseJourneyFile(text);
+      await importJourney(name, graph);
+    } catch (err) {
+      setError((err as Error).message);
+    }
   };
 
   return (
@@ -119,13 +141,23 @@ export function JourneySwitcher() {
         </div>
       ) : (
         mode === "idle" && (
-          <div className="flex gap-3 text-[11px] text-neutral-500">
+          <div className="flex flex-wrap gap-3 text-[11px] text-neutral-500">
             <button
               type="button"
               onClick={startRename}
               className="hover:text-white"
             >
               Rename
+            </button>
+            <button type="button" onClick={onExport} className="hover:text-white">
+              Export
+            </button>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="hover:text-white"
+            >
+              Import
             </button>
             {journeys.length > 1 && (
               <button
@@ -139,6 +171,20 @@ export function JourneySwitcher() {
           </div>
         )
       )}
+
+      {error && <p className="text-[11px] text-red-400">{error}</p>}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/json,.json"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) onImportFile(file);
+          e.target.value = ""; // allow re-importing the same file
+        }}
+      />
     </div>
   );
 }

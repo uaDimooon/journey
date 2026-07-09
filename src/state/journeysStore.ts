@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { api, type JourneySummary } from "../api/client";
 import { createInitialGraph } from "../domain/graph";
+import type { Graph } from "../domain/types";
 import { useGraphStore } from "./graphStore";
 import { useSelectionStore } from "./selectionStore";
 
@@ -21,6 +22,8 @@ interface JourneysState {
   openInitial: () => Promise<void>;
   open: (id: string) => Promise<void>;
   create: (name: string) => Promise<void>;
+  /** Create a new journey from an imported graph and open it. */
+  importJourney: (name: string, graph: Graph) => Promise<void>;
   rename: (id: string, name: string) => Promise<void>;
   remove: (id: string) => Promise<void>;
   clear: () => void;
@@ -87,6 +90,12 @@ export const useJourneysStore = create<JourneysState>((set, get) => ({
       name || "Untitled journey",
       createInitialGraph(),
     );
+    set({ journeys: [journey, ...get().journeys] });
+    await get().open(journey.id);
+  },
+
+  importJourney: async (name, graph) => {
+    const { journey } = await api.createJourney(name || "Imported journey", graph);
     set({ journeys: [journey, ...get().journeys] });
     await get().open(journey.id);
   },
