@@ -42,6 +42,15 @@ db.exec(`CREATE TABLE IF NOT EXISTS graphs (
   data TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );`);
+db.exec(`CREATE TABLE IF NOT EXISTS journeys (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  data TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_journeys_user ON journeys(user_id);");
 
 const SESSION_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
 
@@ -104,6 +113,18 @@ function requireUser(req, res, next) {
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
+// One-time migration: fold any legacy single-graph rows into a "My Journey".
+for (const row of db.prepare("SELECT user_id, data, updated_at FROM graphs").all()) {
+  const has = db
+    .prepare("SELECT 1 FROM journeys WHERE user_id = ? LIMIT 1")
+    .get(row.user_id);
+  if (!has) {
+    db.prepare(
+      "INSERT INTO journeys (id, user_id, name, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(uid(), row.user_id, "My Journey", row.data, row.updated_at, row.updated_at);
+  }
+}
+
 // --- App --------------------------------------------------------------------
 const app = express();
 app.use(express.json({ limit: "4mb" }));
@@ -158,23 +179,99 @@ app.get("/api/auth/me", (req, res) => {
   res.json({ user });
 });
 
-app.get("/api/graph", requireUser, (req, res) => {
-  const row = db
-    .prepare("SELECT data FROM graphs WHERE user_id = ?")
-    .get(req.user.id);
-  res.json({ graph: row ? JSON.parse(row.data) : null });
+const NAME_MAX = 100;
+
+function cleanName(raw, fallback = "Untitled journey") {
+  const name = String(raw ?? "").trim().slice(0, NAME_MAX);
+  return name || fallback;
+}
+
+function validGraph(graph) {
+  return graph && typeof graph === "object" && graph.nodes && typeof graph.nodes === "object";
+}
+
+// List the user's journeys (most recently updated first).
+app.get("/api/journeys", requireUser, (req, res) => {
+  const rows = db
+    .prepare(
+      "SELECT id, name, updated_at FROM journeys WHERE user_id = ? ORDER BY updated_at DESC",
+    )
+    .all(req.user.id);
+  res.json({
+    journeys: rows.map((r) => ({ id: r.id, name: r.name, updatedAt: r.updated_at })),
+  });
 });
 
-app.put("/api/graph", requireUser, (req, res) => {
+// Create a new journey with an initial graph.
+app.post("/api/journeys", requireUser, (req, res) => {
   const graph = req.body?.graph;
-  if (!graph || typeof graph !== "object" || !graph.nodes) {
+  if (!validGraph(graph)) {
     return res.status(400).json({ error: "Invalid graph payload." });
   }
-  const data = JSON.stringify(graph);
+  const name = cleanName(req.body?.name);
+  const id = uid();
+  const now = Date.now();
   db.prepare(
-    `INSERT INTO graphs (user_id, data, updated_at) VALUES (?, ?, ?)
-     ON CONFLICT(user_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
-  ).run(req.user.id, data, Date.now());
+    "INSERT INTO journeys (id, user_id, name, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+  ).run(id, req.user.id, name, JSON.stringify(graph), now, now);
+  res.json({ journey: { id, name, updatedAt: now } });
+});
+
+// Get one journey (with its graph).
+app.get("/api/journeys/:id", requireUser, (req, res) => {
+  const row = db
+    .prepare(
+      "SELECT id, name, data, updated_at FROM journeys WHERE id = ? AND user_id = ?",
+    )
+    .get(req.params.id, req.user.id);
+  if (!row) return res.status(404).json({ error: "Journey not found." });
+  res.json({
+    journey: { id: row.id, name: row.name, updatedAt: row.updated_at },
+    graph: JSON.parse(row.data),
+  });
+});
+
+// Save a journey's graph.
+app.put("/api/journeys/:id", requireUser, (req, res) => {
+  const graph = req.body?.graph;
+  if (!validGraph(graph)) {
+    return res.status(400).json({ error: "Invalid graph payload." });
+  }
+  const now = Date.now();
+  const result = db
+    .prepare(
+      "UPDATE journeys SET data = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+    )
+    .run(JSON.stringify(graph), now, req.params.id, req.user.id);
+  if (result.changes === 0) {
+    return res.status(404).json({ error: "Journey not found." });
+  }
+  res.json({ ok: true, updatedAt: now });
+});
+
+// Rename a journey.
+app.patch("/api/journeys/:id", requireUser, (req, res) => {
+  const name = cleanName(req.body?.name, "");
+  if (!name) return res.status(400).json({ error: "Name is required." });
+  const result = db
+    .prepare(
+      "UPDATE journeys SET name = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+    )
+    .run(name, Date.now(), req.params.id, req.user.id);
+  if (result.changes === 0) {
+    return res.status(404).json({ error: "Journey not found." });
+  }
+  res.json({ ok: true, name });
+});
+
+// Delete a journey.
+app.delete("/api/journeys/:id", requireUser, (req, res) => {
+  const result = db
+    .prepare("DELETE FROM journeys WHERE id = ? AND user_id = ?")
+    .run(req.params.id, req.user.id);
+  if (result.changes === 0) {
+    return res.status(404).json({ error: "Journey not found." });
+  }
   res.json({ ok: true });
 });
 

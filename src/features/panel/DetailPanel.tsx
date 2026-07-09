@@ -9,6 +9,7 @@ import { linkify } from "../../lib/linkify";
 import { TraitEditor } from "../traits/TraitEditor";
 import { OverviewList } from "./OverviewList";
 import { StatusDot } from "./StatusDot";
+import { JourneySwitcher } from "./JourneySwitcher";
 
 export function DetailPanel() {
   const graph = useGraphStore((s) => s.graph);
@@ -52,6 +53,8 @@ export function DetailPanel() {
           Click the grid to add a goal. Click a node to select it.
         </p>
       </header>
+
+      <JourneySwitcher />
 
       {status && (
         <div className="rounded bg-amber-500/15 px-3 py-2 text-xs text-amber-300">

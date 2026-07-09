@@ -7,6 +7,12 @@ export interface AuthUser {
   email: string;
 }
 
+export interface JourneySummary {
+  id: string;
+  name: string;
+  updatedAt: number;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     credentials: "include",
@@ -33,10 +39,30 @@ export const api = {
     }),
   logout: () => request<{ ok: true }>("/api/auth/logout", { method: "POST" }),
   me: () => request<{ user: AuthUser }>("/api/auth/me"),
-  getGraph: () => request<{ graph: Graph | null }>("/api/graph"),
-  saveGraph: (graph: Graph) =>
-    request<{ ok: true }>("/api/graph", {
-      method: "PUT",
-      body: JSON.stringify({ graph }),
+
+  listJourneys: () =>
+    request<{ journeys: JourneySummary[] }>("/api/journeys"),
+  createJourney: (name: string, graph: Graph) =>
+    request<{ journey: JourneySummary }>("/api/journeys", {
+      method: "POST",
+      body: JSON.stringify({ name, graph }),
+    }),
+  getJourney: (id: string) =>
+    request<{ journey: JourneySummary; graph: Graph }>(
+      `/api/journeys/${encodeURIComponent(id)}`,
+    ),
+  saveJourney: (id: string, graph: Graph) =>
+    request<{ ok: true; updatedAt: number }>(
+      `/api/journeys/${encodeURIComponent(id)}`,
+      { method: "PUT", body: JSON.stringify({ graph }) },
+    ),
+  renameJourney: (id: string, name: string) =>
+    request<{ ok: true; name: string }>(
+      `/api/journeys/${encodeURIComponent(id)}`,
+      { method: "PATCH", body: JSON.stringify({ name }) },
+    ),
+  deleteJourney: (id: string) =>
+    request<{ ok: true }>(`/api/journeys/${encodeURIComponent(id)}`, {
+      method: "DELETE",
     }),
 };
