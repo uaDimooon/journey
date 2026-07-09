@@ -108,3 +108,72 @@ export function tryCreateEdge(graph: Graph, from: Id, to: Id): LinkResult {
     edge: { id: makeId("edge"), from, to },
   };
 }
+
+/** Horizontal gap (world units) placed between merged clusters. */
+const MERGE_GAP = 200;
+
+function findStart(graph: Graph): GraphNode | undefined {
+  return Object.values(graph.nodes).find((n) => n.kind === "start");
+}
+
+/** Offset that places the source cluster just to the right of the target cluster. */
+function mergeOffset(target: Graph, source: Graph): Vec2 {
+  const t = Object.values(target.nodes);
+  const s = Object.values(source.nodes);
+  if (t.length === 0 || s.length === 0) return { x: 0, y: 0 };
+  const targetMaxX = Math.max(...t.map((n) => n.pos.x + n.size));
+  const sourceMinX = Math.min(...s.map((n) => n.pos.x - n.size));
+  return { x: targetMaxX - sourceMinX + MERGE_GAP, y: 0 };
+}
+
+/**
+ * Merge `source` into `target`, preserving all goals, traits, statuses, colors,
+ * and links. The two start nodes are unified (source start folds into target
+ * start, unioning traits). Incoming nodes get fresh ids and are shifted right so
+ * nothing overlaps. Returns a new graph; inputs are not mutated.
+ */
+export function mergeGraphs(target: Graph, source: Graph): Graph {
+  const targetStart = findStart(target);
+  const sourceStart = findStart(source);
+  const offset = mergeOffset(target, source);
+
+  const idMap = new Map<Id, Id>();
+  const nodes: Record<Id, GraphNode> = { ...target.nodes };
+
+  // Fold the source start into the target start (union their traits).
+  if (sourceStart && targetStart) {
+    idMap.set(sourceStart.id, targetStart.id);
+    nodes[targetStart.id] = {
+      ...targetStart,
+      traits: Array.from(
+        new Set([...targetStart.traits, ...sourceStart.traits]),
+      ),
+    };
+  }
+
+  // Copy every non-start source node with a fresh id and offset position.
+  for (const node of Object.values(source.nodes)) {
+    if (node.kind === "start") continue;
+    const newId = makeId("goal");
+    idMap.set(node.id, newId);
+    nodes[newId] = {
+      ...node,
+      id: newId,
+      traits: [...node.traits],
+      pos: { x: node.pos.x + offset.x, y: node.pos.y + offset.y },
+    };
+  }
+
+  // Copy source edges with remapped endpoints, skipping self-loops/duplicates.
+  const edges: Record<Id, Edge> = { ...target.edges };
+  for (const edge of Object.values(source.edges)) {
+    const from = idMap.get(edge.from);
+    const to = idMap.get(edge.to);
+    if (!from || !to || from === to) continue;
+    if (Object.values(edges).some((e) => e.from === from && e.to === to)) continue;
+    const newId = makeId("edge");
+    edges[newId] = { id: newId, from, to };
+  }
+
+  return { nodes, edges };
+}

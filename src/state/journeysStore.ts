@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { api, type JourneySummary } from "../api/client";
-import { createInitialGraph } from "../domain/graph";
+import { createInitialGraph, mergeGraphs } from "../domain/graph";
 import type { Graph } from "../domain/types";
 import { useGraphStore } from "./graphStore";
 import { useSelectionStore } from "./selectionStore";
@@ -24,6 +24,8 @@ interface JourneysState {
   create: (name: string) => Promise<void>;
   /** Create a new journey from an imported graph and open it. */
   importJourney: (name: string, graph: Graph) => Promise<void>;
+  /** Merge another journey's contents into the current one. */
+  mergeInto: (sourceId: string) => Promise<void>;
   rename: (id: string, name: string) => Promise<void>;
   remove: (id: string) => Promise<void>;
   clear: () => void;
@@ -98,6 +100,17 @@ export const useJourneysStore = create<JourneysState>((set, get) => ({
     const { journey } = await api.createJourney(name || "Imported journey", graph);
     set({ journeys: [journey, ...get().journeys] });
     await get().open(journey.id);
+  },
+
+  mergeInto: async (sourceId) => {
+    const targetId = get().currentId;
+    if (!targetId || sourceId === targetId) return;
+    // Pull the source journey's graph and fold it into the current one.
+    const { graph: sourceGraph } = await api.getJourney(sourceId);
+    const merged = mergeGraphs(useGraphStore.getState().graph, sourceGraph);
+    useGraphStore.getState().setGraph(merged, targetId);
+    useSelectionStore.getState().select(null);
+    await api.saveJourney(targetId, merged);
   },
 
   rename: async (id, name) => {
