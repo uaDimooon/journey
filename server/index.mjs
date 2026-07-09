@@ -10,14 +10,21 @@ import {
   scryptSync,
   timingSafeEqual,
 } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import path from "node:path";
+import os from "node:os";
+import fs from "node:fs";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isProd = process.env.NODE_ENV === "production";
-
 // --- Database ---------------------------------------------------------------
-const db = new DatabaseSync(path.join(__dirname, "journey.db"));
+// Store the DB OUTSIDE the repo by default so `git clean` / `rm -rf` inside the
+// working tree can't wipe it. Override with the JOURNEY_DB_PATH env var.
+const dbPath =
+  process.env.JOURNEY_DB_PATH ||
+  path.join(os.homedir(), ".journey", "journey.db");
+fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+console.log(`Journey DB: ${dbPath}`);
+
+const db = new DatabaseSync(dbPath);
 db.exec("PRAGMA journal_mode = WAL;");
 db.exec(`CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
