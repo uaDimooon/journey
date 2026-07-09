@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:test": "VITE_API_TARGET=http://localhost:8788 vite --port 5174",
     "server": "node server/index.mjs",
+    "server:test": "JOURNEY_ENV=test node server/index.mjs",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview"
