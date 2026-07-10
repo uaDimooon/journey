@@ -15,6 +15,7 @@ export function DetailPanel() {
   const graph = useGraphStore((s) => s.graph);
   const updateNode = useGraphStore((s) => s.updateNode);
   const removeNode = useGraphStore((s) => s.removeNode);
+  const unlink = useGraphStore((s) => s.unlink);
 
   const selectedId = useSelectionStore((s) => s.selectedId);
   const linkingFrom = useSelectionStore((s) => s.linkingFrom);
@@ -166,18 +167,30 @@ export function DetailPanel() {
                       onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === " ") select(s.id);
                       }}
-                      className="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-neutral-800"
+                      className="group flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-neutral-800"
                     >
                       <StatusDot node={s} />
                       <span
-                        className={
+                        className={`flex-1 truncate ${
                           nodeStatus(s) === "done"
                             ? "text-neutral-500 line-through"
                             : ""
-                        }
+                        }`}
                       >
                         {linkify(s.name)}
                       </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          unlink(s.id, node.id);
+                        }}
+                        title="Remove link"
+                        aria-label={`Remove link from ${s.name}`}
+                        className="shrink-0 text-neutral-500 opacity-0 hover:text-red-400 group-hover:opacity-100"
+                      >
+                        ⊘
+                      </button>
                     </div>
                   </li>
                 ))}
