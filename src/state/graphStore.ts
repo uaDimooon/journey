@@ -8,6 +8,8 @@ import {
   createGoal,
   createInitialGraph,
   isPositionOccupied,
+  makeId,
+  normalizeGraph,
   tryCreateEdge,
 } from "../domain/graph";
 
@@ -27,8 +29,13 @@ interface GraphState {
   removeNode: (id: Id) => void;
   /** Attempt to link from -> to. Returns an error message, or null on success. */
   linkNodes: (from: Id, to: Id) => string | null;
-  addTrait: (id: Id, trait: string) => void;
-  removeTrait: (id: Id, trait: string) => void;
+  /** Add a trait (by name) to a node. */
+  addTrait: (id: Id, name: string) => void;
+  removeTrait: (id: Id, traitId: Id) => void;
+  renameTrait: (id: Id, traitId: Id, name: string) => void;
+  toggleTrait: (id: Id, traitId: Id) => void;
+  /** Reorder a node's traits by moving one from `fromIndex` to `toIndex`. */
+  reorderTraits: (id: Id, fromIndex: number, toIndex: number) => void;
   reset: () => void;
 }
 
@@ -38,12 +45,7 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
   journeyId: null,
 
   setGraph: (graph, journeyId) => {
-    // Normalize legacy nodes that predate the status field.
-    const nodes: Graph["nodes"] = {};
-    for (const [id, node] of Object.entries(graph.nodes)) {
-      nodes[id] = { ...node, status: node.status ?? "next-up" };
-    }
-    set({ graph: { nodes, edges: graph.edges }, hydrated: true, journeyId });
+    set({ graph: normalizeGraph(graph), hydrated: true, journeyId });
   },
 
   addGoal: (pos, size) => {
@@ -110,23 +112,24 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
         return null;
       },
 
-      addTrait: (id, trait) =>
+      addTrait: (id, name) =>
         set((s) => {
           const node = s.graph.nodes[id];
-          const t = trait.trim();
-          if (!node || !t || node.traits.includes(t)) return s;
+          const t = name.trim();
+          if (!node || !t || node.traits.some((tr) => tr.name === t)) return s;
+          const trait = { id: makeId("trait"), name: t, done: false };
           return {
             graph: {
               ...s.graph,
               nodes: {
                 ...s.graph.nodes,
-                [id]: { ...node, traits: [...node.traits, t] },
+                [id]: { ...node, traits: [...node.traits, trait] },
               },
             },
           };
         }),
 
-      removeTrait: (id, trait) =>
+      removeTrait: (id, traitId) =>
         set((s) => {
           const node = s.graph.nodes[id];
           if (!node) return s;
@@ -137,9 +140,74 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
                 ...s.graph.nodes,
                 [id]: {
                   ...node,
-                  traits: node.traits.filter((t) => t !== trait),
+                  traits: node.traits.filter((t) => t.id !== traitId),
                 },
               },
+            },
+          };
+        }),
+
+      renameTrait: (id, traitId, name) =>
+        set((s) => {
+          const node = s.graph.nodes[id];
+          const t = name.trim();
+          if (!node || !t) return s;
+          return {
+            graph: {
+              ...s.graph,
+              nodes: {
+                ...s.graph.nodes,
+                [id]: {
+                  ...node,
+                  traits: node.traits.map((tr) =>
+                    tr.id === traitId ? { ...tr, name: t } : tr,
+                  ),
+                },
+              },
+            },
+          };
+        }),
+
+      toggleTrait: (id, traitId) =>
+        set((s) => {
+          const node = s.graph.nodes[id];
+          if (!node) return s;
+          return {
+            graph: {
+              ...s.graph,
+              nodes: {
+                ...s.graph.nodes,
+                [id]: {
+                  ...node,
+                  traits: node.traits.map((tr) =>
+                    tr.id === traitId ? { ...tr, done: !tr.done } : tr,
+                  ),
+                },
+              },
+            },
+          };
+        }),
+
+      reorderTraits: (id, fromIndex, toIndex) =>
+        set((s) => {
+          const node = s.graph.nodes[id];
+          if (!node) return s;
+          const traits = [...node.traits];
+          if (
+            fromIndex < 0 ||
+            fromIndex >= traits.length ||
+            toIndex < 0 ||
+            toIndex >= traits.length ||
+            fromIndex === toIndex
+          ) {
+            return s;
+          }
+          const [moved] = traits.splice(fromIndex, 1);
+          traits.splice(toIndex, 0, moved);
+          return {
+            graph: {
+              ...s.graph,
+              nodes: { ...s.graph.nodes, [id]: { ...node, traits } },
             },
           };
         }),

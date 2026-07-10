@@ -1,6 +1,6 @@
 /** Pure graph logic: creation, edge validation (DAG), and queries. */
 
-import type { Edge, Graph, GraphNode, Id, Vec2 } from "./types";
+import type { Edge, Graph, GraphNode, Id, Trait, Vec2 } from "./types";
 import { randomColor } from "./color";
 import { BASE_NODE_RADIUS } from "./geometry";
 
@@ -8,6 +8,38 @@ let counter = 0;
 export function makeId(prefix = "n"): Id {
   counter += 1;
   return `${prefix}_${Date.now().toString(36)}_${counter}`;
+}
+
+/** Coerce a raw trait (legacy string or object) into a Trait. */
+export function normalizeTrait(raw: unknown): Trait {
+  if (typeof raw === "string") {
+    return { id: makeId("trait"), name: raw, done: false };
+  }
+  const t = (raw ?? {}) as Partial<Trait>;
+  return {
+    id: t.id ?? makeId("trait"),
+    name: typeof t.name === "string" ? t.name : "",
+    done: Boolean(t.done),
+  };
+}
+
+/** Ensure a node has a status and structured traits (handles legacy data). */
+export function normalizeNode(node: GraphNode): GraphNode {
+  const rawTraits = Array.isArray(node.traits) ? node.traits : [];
+  return {
+    ...node,
+    status: node.status ?? "next-up",
+    traits: rawTraits.map(normalizeTrait),
+  };
+}
+
+/** Normalize every node in a graph (legacy-data safe). */
+export function normalizeGraph(graph: Graph): Graph {
+  const nodes: Record<Id, GraphNode> = {};
+  for (const [id, node] of Object.entries(graph.nodes)) {
+    nodes[id] = normalizeNode(node);
+  }
+  return { nodes, edges: graph.edges ?? {} };
 }
 
 export function createStartNode(name = "You"): GraphNode {
@@ -133,6 +165,8 @@ function mergeOffset(target: Graph, source: Graph): Vec2 {
  * nothing overlaps. Returns a new graph; inputs are not mutated.
  */
 export function mergeGraphs(target: Graph, source: Graph): Graph {
+  target = normalizeGraph(target);
+  source = normalizeGraph(source);
   const targetStart = findStart(target);
   const sourceStart = findStart(source);
   const offset = mergeOffset(target, source);
@@ -140,15 +174,18 @@ export function mergeGraphs(target: Graph, source: Graph): Graph {
   const idMap = new Map<Id, Id>();
   const nodes: Record<Id, GraphNode> = { ...target.nodes };
 
-  // Fold the source start into the target start (union their traits).
+  // Fold the source start into the target start (union their traits by name).
   if (sourceStart && targetStart) {
     idMap.set(sourceStart.id, targetStart.id);
-    nodes[targetStart.id] = {
-      ...targetStart,
-      traits: Array.from(
-        new Set([...targetStart.traits, ...sourceStart.traits]),
-      ),
-    };
+    const seen = new Set(targetStart.traits.map((t) => t.name));
+    const traits = [...targetStart.traits];
+    for (const t of sourceStart.traits) {
+      if (!seen.has(t.name)) {
+        traits.push({ ...t, id: makeId("trait") });
+        seen.add(t.name);
+      }
+    }
+    nodes[targetStart.id] = { ...targetStart, traits };
   }
 
   // Copy every non-start source node with a fresh id and offset position.
@@ -159,7 +196,7 @@ export function mergeGraphs(target: Graph, source: Graph): Graph {
     nodes[newId] = {
       ...node,
       id: newId,
-      traits: [...node.traits],
+      traits: node.traits.map((t) => ({ ...t, id: makeId("trait") })),
       pos: { x: node.pos.x + offset.x, y: node.pos.y + offset.y },
     };
   }

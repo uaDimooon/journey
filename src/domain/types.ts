@@ -12,13 +12,20 @@ export type NodeKind = "start" | "goal";
 /** Progress state of a goal. */
 export type GoalStatus = "next-up" | "in-progress" | "done";
 
+/** A trait/tag on a node. Can be renamed, reordered, and checked off. */
+export interface Trait {
+  id: Id;
+  name: string;
+  done: boolean;
+}
+
 export interface GraphNode {
   id: Id;
   kind: NodeKind;
   name: string;
   description: string;
   color: string;
-  traits: string[];
+  traits: Trait[];
   /** Progress status. Defaults to "next-up" for new goals. */
   status: GoalStatus;
   /** World-space position (canvas coordinates). */
