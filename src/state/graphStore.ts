@@ -31,6 +31,8 @@ interface GraphState {
   removeNode: (id: Id) => void;
   /** Attempt to link from -> to. Returns an error message, or null on success. */
   linkNodes: (from: Id, to: Id) => string | null;
+  /** Remove the link (edge) from `from` to `to`, if present. */
+  unlink: (from: Id, to: Id) => void;
   /** Add a trait (by name) to a node. */
   addTrait: (id: Id, name: string) => void;
   removeTrait: (id: Id, traitId: Id) => void;
@@ -126,6 +128,16 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
         });
         return null;
       },
+
+      unlink: (from, to) =>
+        set((s) => {
+          const edges = Object.fromEntries(
+            Object.entries(s.graph.edges).filter(
+              ([, e]) => !(e.from === from && e.to === to),
+            ),
+          );
+          return { graph: { ...s.graph, edges } };
+        }),
 
       addTrait: (id, name) =>
         set((s) => {
