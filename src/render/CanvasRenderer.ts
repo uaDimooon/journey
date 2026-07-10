@@ -204,6 +204,10 @@ export class CanvasRenderer {
       const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
       useCameraStore.getState().zoomAt(factor, e.offsetX, e.offsetY);
     }, { passive: false });
+
+    canvas.addEventListener("dblclick", (e) => {
+      this.handleDoubleClick(e.offsetX, e.offsetY);
+    });
   }
 
   /** Effective (relationship-aware) screen radius for a node. */
@@ -262,13 +266,22 @@ export class CanvasRenderer {
       return;
     }
 
-    // Empty space: create a goal snapped to the current fine grid. Its world size
-    // comes from the current zoom, so goals placed while zoomed in are smaller.
+    // Single click on empty space deselects. Nodes are created on double-click.
+    selection.select(null);
+  }
+
+  private handleDoubleClick(sx: number, sy: number): void {
+    const selection = useSelectionStore.getState();
+    if (selection.linkingFrom) return;
+    if (this.hitTest({ x: sx, y: sy })) return; // ignore double-clicks on nodes
+
+    // Create a goal snapped to the current fine grid. Its world size comes from
+    // the current zoom, so goals placed while zoomed in are smaller.
     const cam = this.cam;
     const world = screenToWorld({ x: sx, y: sy }, cam, this.vp);
     const pos = snapWorldToGrid(world, cam.zoom);
     const size = goalWorldRadius(cam.zoom);
-    const id = graphStore.addGoal(pos, size);
+    const id = useGraphStore.getState().addGoal(pos, size);
     if (id) selection.select(id);
   }
 
