@@ -36,6 +36,7 @@ export class CanvasRenderer {
   private lastX = 0;
   private lastY = 0;
   private draggingId: string | null = null;
+  private resizingId: string | null = null;
   private initialized = false;
   private destroyed = false;
 
@@ -110,9 +111,21 @@ export class CanvasRenderer {
       this.lastY = e.offsetY;
       canvas.setPointerCapture(e.pointerId);
 
+      const linking = useSelectionStore.getState().linkingFrom;
+      const selectedId = useSelectionStore.getState().selectedId;
+
+      // Pressing the selected node's resize handle starts a resize.
+      if (!linking && selectedId) {
+        const selNode = useGraphStore.getState().graph.nodes[selectedId];
+        if (selNode && this.hitResizeHandle({ x: e.offsetX, y: e.offsetY }, selNode)) {
+          this.resizingId = selNode.id;
+          canvas.style.cursor = "nwse-resize";
+          return;
+        }
+      }
+
       // Grabbing a node (outside of linking mode) starts a move-drag and
       // selects it; empty space starts a pan.
-      const linking = useSelectionStore.getState().linkingFrom;
       if (!linking) {
         const node = this.hitTest({ x: e.offsetX, y: e.offsetY });
         if (node) {
@@ -129,8 +142,16 @@ export class CanvasRenderer {
 
       // Hover feedback when idle.
       if (!this.pointerDown) {
-        const overNode = this.hitTest({ x: e.offsetX, y: e.offsetY });
-        canvas.style.cursor = overNode ? "grab" : "default";
+        const selectedId = useSelectionStore.getState().selectedId;
+        const selNode = selectedId
+          ? useGraphStore.getState().graph.nodes[selectedId]
+          : undefined;
+        if (selNode && this.hitResizeHandle({ x: e.offsetX, y: e.offsetY }, selNode)) {
+          canvas.style.cursor = "nwse-resize";
+        } else {
+          const overNode = this.hitTest({ x: e.offsetX, y: e.offsetY });
+          canvas.style.cursor = overNode ? "grab" : "default";
+        }
         return;
       }
 
@@ -140,7 +161,16 @@ export class CanvasRenderer {
       this.lastX = e.offsetX;
       this.lastY = e.offsetY;
 
-      if (this.draggingId) {
+      if (this.resizingId) {
+        // New radius = distance from node center to pointer, in world units.
+        const cam = this.cam;
+        const node = useGraphStore.getState().graph.nodes[this.resizingId];
+        if (node) {
+          const center = worldToScreen(node.pos, cam, this.vp);
+          const distPx = Math.hypot(e.offsetX - center.x, e.offsetY - center.y);
+          useGraphStore.getState().resizeNode(this.resizingId, distPx / cam.zoom);
+        }
+      } else if (this.draggingId) {
         // Move the grabbed node, snapping to the current fine grid.
         const cam = this.cam;
         const world = screenToWorld({ x: e.offsetX, y: e.offsetY }, cam, this.vp);
@@ -152,12 +182,13 @@ export class CanvasRenderer {
     });
 
     canvas.addEventListener("pointerup", (e) => {
-      const wasDragging = this.draggingId !== null;
+      const wasInteracting = this.draggingId !== null || this.resizingId !== null;
       this.pointerDown = false;
       this.draggingId = null;
+      this.resizingId = null;
       canvas.style.cursor = "default";
-      // Only treat as a click if it wasn't a node move-drag.
-      if (!this.moved && !wasDragging) {
+      // Only treat as a click if it wasn't a node move/resize.
+      if (!this.moved && !wasInteracting) {
         this.handleClick(e.offsetX, e.offsetY);
       }
     });
@@ -167,6 +198,20 @@ export class CanvasRenderer {
       const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
       useCameraStore.getState().zoomAt(factor, e.offsetX, e.offsetY);
     }, { passive: false });
+  }
+
+  /** Screen position of a node's resize handle (upper-right of its edge). */
+  private resizeHandleScreen(node: GraphNode): Vec2 {
+    const cam = this.cam;
+    const center = worldToScreen(node.pos, cam, this.vp);
+    const r = Math.max(nodeScreenRadius(node, cam), 6);
+    const angle = -Math.PI / 4;
+    return { x: center.x + Math.cos(angle) * r, y: center.y + Math.sin(angle) * r };
+  }
+
+  private hitResizeHandle(screen: Vec2, node: GraphNode): boolean {
+    const h = this.resizeHandleScreen(node);
+    return Math.hypot(screen.x - h.x, screen.y - h.y) <= 9;
   }
 
   private hitTest(screen: Vec2): GraphNode | null {
@@ -333,6 +378,15 @@ export class CanvasRenderer {
         gfx
           .circle(p.x, p.y, r)
           .stroke({ width: 2.5, color: hexToNumber(STATUS_HEX[nodeStatus(node)]) });
+      }
+
+      // Resize handle for the selected node.
+      if (node.id === selectedId) {
+        const h = this.resizeHandleScreen(node);
+        gfx
+          .circle(h.x, h.y, 5)
+          .fill({ color: 0xffffff })
+          .stroke({ width: 1.5, color: 0x0f1115 });
       }
       layer.addChild(gfx);
 
