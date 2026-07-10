@@ -6,7 +6,6 @@ import {
   GRID_SUBDIVISIONS,
   goalWorldRadius,
   gridStepWorld,
-  nodeScreenRadius,
   screenToWorld,
   snapWorldToGrid,
   worldToScreen,
@@ -14,9 +13,10 @@ import {
   type Viewport,
 } from "../domain/geometry";
 import { hexToNumber } from "../domain/color";
+import { effectiveSizes } from "../domain/graph";
 import { STATUS_HEX, nodeStatus } from "../domain/status";
 import { stripMarkdownLinks } from "../lib/linkify";
-import type { GraphNode, Vec2 } from "../domain/types";
+import type { GraphNode, Id, Vec2 } from "../domain/types";
 import { useCameraStore } from "../state/cameraStore";
 import { useGraphStore } from "../state/graphStore";
 import { useSelectionStore } from "../state/selectionStore";
@@ -163,12 +163,18 @@ export class CanvasRenderer {
 
       if (this.resizingId) {
         // New radius = distance from node center to pointer, in world units.
+        // We set the node's *intrinsic* size so the visible (effective) edge
+        // follows the pointer, subtracting the children's contribution.
         const cam = this.cam;
-        const node = useGraphStore.getState().graph.nodes[this.resizingId];
+        const graph = useGraphStore.getState().graph;
+        const node = graph.nodes[this.resizingId];
         if (node) {
+          const eff = effectiveSizes(graph);
+          const contribution = eff[node.id] - node.size;
           const center = worldToScreen(node.pos, cam, this.vp);
           const distPx = Math.hypot(e.offsetX - center.x, e.offsetY - center.y);
-          useGraphStore.getState().resizeNode(this.resizingId, distPx / cam.zoom);
+          const desiredEff = distPx / cam.zoom;
+          useGraphStore.getState().resizeNode(this.resizingId, desiredEff - contribution);
         }
       } else if (this.draggingId) {
         // Move the grabbed node, snapping to the current fine grid.
@@ -200,11 +206,17 @@ export class CanvasRenderer {
     }, { passive: false });
   }
 
+  /** Effective (relationship-aware) screen radius for a node. */
+  private nodeRadiusPx(node: GraphNode, eff: Record<Id, number>, minPx: number): number {
+    return Math.max(eff[node.id] * this.cam.zoom, minPx);
+  }
+
   /** Screen position of a node's resize handle (upper-right of its edge). */
   private resizeHandleScreen(node: GraphNode): Vec2 {
     const cam = this.cam;
+    const eff = effectiveSizes(useGraphStore.getState().graph);
     const center = worldToScreen(node.pos, cam, this.vp);
-    const r = Math.max(nodeScreenRadius(node, cam), 6);
+    const r = this.nodeRadiusPx(node, eff, 6);
     const angle = -Math.PI / 4;
     return { x: center.x + Math.cos(angle) * r, y: center.y + Math.sin(angle) * r };
   }
@@ -218,10 +230,11 @@ export class CanvasRenderer {
     const { graph } = useGraphStore.getState();
     const cam = this.cam;
     const vp = this.vp;
+    const eff = effectiveSizes(graph);
     let hit: GraphNode | null = null;
     for (const node of Object.values(graph.nodes)) {
       const p = worldToScreen(node.pos, cam, vp);
-      const r = Math.max(nodeScreenRadius(node, cam), 8);
+      const r = this.nodeRadiusPx(node, eff, 8);
       const dist = Math.hypot(screen.x - p.x, screen.y - p.y);
       if (dist <= r) hit = node;
     }
@@ -314,6 +327,7 @@ export class CanvasRenderer {
     const { graph } = useGraphStore.getState();
     const cam = this.cam;
     const vp = this.vp;
+    const eff = effectiveSizes(graph);
 
     for (const edge of Object.values(graph.edges)) {
       const from = graph.nodes[edge.from];
@@ -321,7 +335,7 @@ export class CanvasRenderer {
       if (!from || !to) continue;
       const p1 = worldToScreen(from.pos, cam, vp);
       const p2 = worldToScreen(to.pos, cam, vp);
-      const r2 = Math.max(nodeScreenRadius(to, cam), 6);
+      const r2 = this.nodeRadiusPx(to, eff, 6);
 
       const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
       // Stop the line at the edge of the target node.
@@ -358,10 +372,11 @@ export class CanvasRenderer {
     const { selectedId, linkingFrom } = useSelectionStore.getState();
     const cam = this.cam;
     const vp = this.vp;
+    const eff = effectiveSizes(graph);
 
     for (const node of Object.values(graph.nodes)) {
       const p = worldToScreen(node.pos, cam, vp);
-      const r = Math.max(nodeScreenRadius(node, cam), 2);
+      const r = this.nodeRadiusPx(node, eff, 2);
 
       const gfx = new Graphics();
       // Selection / linking ring.

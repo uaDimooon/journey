@@ -89,9 +89,7 @@ export function incomingNodes(graph: Graph, nodeId: Id): GraphNode[] {
     .filter((e) => e.to === nodeId)
     .map((e) => graph.nodes[e.from])
     .filter(Boolean);
-}
-
-/** Nodes that `nodeId` feeds into. */
+}/** Nodes that `nodeId` feeds into. */
 export function outgoingNodes(graph: Graph, nodeId: Id): GraphNode[] {
   return Object.values(graph.edges)
     .filter((e) => e.from === nodeId)
@@ -103,6 +101,40 @@ export function edgeExists(graph: Graph, from: Id, to: Id): boolean {
   return Object.values(graph.edges).some(
     (e) => e.from === from && e.to === to,
   );
+}
+
+/** How much each child's effective size contributes to its parent. */
+export const CHILD_SIZE_FACTOR = 0.5;
+
+/**
+ * Effective (rendered) size per node: a node's own intrinsic `size` plus a
+ * factor of the sum of its children's effective sizes. So a "master" goal is
+ * bigger than its subgoals, more children make it bigger, and the effect
+ * cascades up through intermediate goals. Memoized over the DAG.
+ */
+export function effectiveSizes(graph: Graph): Record<Id, number> {
+  const memo: Record<Id, number> = {};
+  const visiting = new Set<Id>();
+
+  const eff = (id: Id): number => {
+    const cached = memo[id];
+    if (cached !== undefined) return cached;
+    const node = graph.nodes[id];
+    if (!node) return 0;
+    if (visiting.has(id)) return node.size; // cycle guard (DAG shouldn't hit this)
+    visiting.add(id);
+    let childSum = 0;
+    for (const child of incomingNodes(graph, id)) {
+      childSum += eff(child.id);
+    }
+    visiting.delete(id);
+    const value = node.size + CHILD_SIZE_FACTOR * childSum;
+    memo[id] = value;
+    return value;
+  };
+
+  for (const id of Object.keys(graph.nodes)) eff(id);
+  return memo;
 }
 
 /** Would adding from -> to create a cycle? Keeps the graph a DAG. */

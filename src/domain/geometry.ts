@@ -1,6 +1,6 @@
 /** Pure geometry: adaptive grid, camera transforms, and zoom-relative sizing. */
 
-import type { GraphNode, Vec2 } from "./types";
+import type { Vec2 } from "./types";
 
 /** Reference grid spacing in world units at zoom 1. */
 export const BASE_GRID = 60;
@@ -70,11 +70,6 @@ export function snapWorldToGrid(world: Vec2, zoom: number): Vec2 {
  */
 export function goalWorldRadius(zoom: number): number {
   return BASE_NODE_RADIUS / zoom;
-}
-
-/** Rendered node radius in screen pixels. */
-export function nodeScreenRadius(node: GraphNode, cam: Camera): number {
-  return node.size * cam.zoom;
 }
 
 export function clampZoom(zoom: number): number {
