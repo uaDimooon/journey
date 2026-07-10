@@ -25,6 +25,8 @@ interface GraphState {
   addGoal: (pos: Vec2, size: number) => Id | null;
   /** Move a node to a new world position. */
   moveNode: (id: Id, pos: Vec2) => void;
+  /** Set a node's world-space radius (clamped). */
+  resizeNode: (id: Id, size: number) => void;
   updateNode: (id: Id, patch: Partial<Omit<GraphNode, "id" | "kind">>) => void;
   removeNode: (id: Id) => void;
   /** Attempt to link from -> to. Returns an error message, or null on success. */
@@ -69,6 +71,19 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
             graph: {
               ...s.graph,
               nodes: { ...s.graph.nodes, [id]: { ...node, pos } },
+            },
+          };
+        }),
+
+      resizeNode: (id, size) =>
+        set((s) => {
+          const node = s.graph.nodes[id];
+          if (!node) return s;
+          const clamped = Math.max(3, Math.min(5000, size));
+          return {
+            graph: {
+              ...s.graph,
+              nodes: { ...s.graph.nodes, [id]: { ...node, size: clamped } },
             },
           };
         }),
