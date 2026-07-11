@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import { useGraphStore } from "../../state/graphStore";
-import { api } from "../../api/client";
+import { api, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_MB } from "../../api/client";
 import { linkify } from "../../lib/linkify";
 import type { Id, Trait } from "../../domain/types";
 
@@ -14,7 +14,11 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
   const [openId, setOpenId] = useState<Id | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [uploadingId, setUploadingId] = useState<Id | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ url: string; name: string } | null>(
+    null,
+  );
 
   const addTrait = useGraphStore((s) => s.addTrait);
   const removeTrait = useGraphStore((s) => s.removeTrait);
@@ -45,17 +49,21 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
   const onUpload = async (traitId: Id, files: FileList | null) => {
     if (!files || files.length === 0) return;
     setUploadError(null);
-    setUploadingId(traitId);
-    try {
-      for (const file of Array.from(files)) {
-        const att = await api.uploadAttachment(file);
-        addTraitAttachment(nodeId, traitId, att);
+    for (const file of Array.from(files)) {
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        setUploadError(`"${file.name}" is too large (max ${MAX_ATTACHMENT_MB} MB).`);
+        continue;
       }
-    } catch (err) {
-      setUploadError((err as Error).message);
-    } finally {
-      setUploadingId(null);
+      setUploadingId(traitId);
+      setUploadProgress(0);
+      try {
+        const att = await api.uploadAttachment(file, setUploadProgress);
+        addTraitAttachment(nodeId, traitId, att);
+      } catch (err) {
+        setUploadError((err as Error).message);
+      }
     }
+    setUploadingId(null);
   };
 
   const onRemoveAttachment = async (traitId: Id, attachmentId: Id) => {
@@ -193,20 +201,23 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
                             className="group relative flex items-center gap-1 rounded border border-neutral-700 bg-neutral-900 p-1"
                           >
                             {isImage ? (
-                              <a href={url} target="_blank" rel="noopener noreferrer">
+                              <button
+                                type="button"
+                                onClick={() => setPreview({ url, name: a.name })}
+                                title={`Preview ${a.name}`}
+                              >
                                 <img
                                   src={url}
                                   alt={a.name}
-                                  className="h-12 w-12 rounded object-cover"
+                                  className="h-12 w-12 cursor-zoom-in rounded object-cover"
                                 />
-                              </a>
+                              </button>
                             ) : (
                               <a
                                 href={url}
-                                target="_blank"
-                                rel="noopener noreferrer"
+                                download={a.name}
                                 className="max-w-[8rem] truncate text-xs text-sky-400 underline"
-                                title={a.name}
+                                title={`Download ${a.name}`}
                               >
                                 📎 {a.name}
                               </a>
@@ -225,8 +236,24 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
                     </div>
                   )}
 
+                  {uploadingId === t.id && (
+                    <div className="flex items-center gap-2">
+                      <div className="h-1.5 flex-1 overflow-hidden rounded bg-neutral-800">
+                        <div
+                          className="h-full bg-sky-500 transition-all"
+                          style={{ width: `${uploadProgress}%` }}
+                        />
+                      </div>
+                      <span className="w-9 text-right text-[10px] text-neutral-400">
+                        {uploadProgress}%
+                      </span>
+                    </div>
+                  )}
+
                   <label className="inline-flex w-fit cursor-pointer items-center gap-1 rounded bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700">
-                    {uploadingId === t.id ? "Uploading…" : "📎 Attach files"}
+                    {uploadingId === t.id
+                      ? "Uploading…"
+                      : `📎 Attach files (max ${MAX_ATTACHMENT_MB} MB)`}
                     <input
                       type="file"
                       multiple
@@ -262,6 +289,41 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
           Add
         </button>
       </div>
+
+      {preview && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
+          onClick={() => setPreview(null)}
+        >
+          <div
+            className="flex max-h-full max-w-full flex-col items-center gap-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={preview.url}
+              alt={preview.name}
+              className="max-h-[80vh] max-w-[90vw] rounded object-contain"
+            />
+            <div className="flex items-center gap-3 text-sm text-neutral-300">
+              <span className="max-w-[60vw] truncate">{preview.name}</span>
+              <a
+                href={preview.url}
+                download={preview.name}
+                className="text-sky-400 underline hover:text-sky-300"
+              >
+                Download
+              </a>
+              <button
+                type="button"
+                onClick={() => setPreview(null)}
+                className="text-neutral-400 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
