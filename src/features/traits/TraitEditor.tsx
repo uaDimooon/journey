@@ -47,9 +47,14 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
   };
 
   const onUpload = async (traitId: Id, files: FileList | null) => {
-    if (!files || files.length === 0) return;
+    if (!files) return;
+    await uploadFiles(traitId, Array.from(files));
+  };
+
+  const uploadFiles = async (traitId: Id, files: File[]) => {
+    if (files.length === 0) return;
     setUploadError(null);
-    for (const file of Array.from(files)) {
+    for (const file of files) {
       if (file.size > MAX_ATTACHMENT_BYTES) {
         setUploadError(`"${file.name}" is too large (max ${MAX_ATTACHMENT_MB} MB).`);
         continue;
@@ -64,6 +69,32 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
       }
     }
     setUploadingId(null);
+  };
+
+  // Paste a screenshot / image from the clipboard to attach it.
+  const onPaste = async (traitId: Id, e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const images: File[] = [];
+    for (const item of Array.from(items)) {
+      if (item.kind === "file" && item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) {
+          const ext = (file.type.split("/")[1] || "png").split("+")[0];
+          const named =
+            file.name && file.name !== "image.png"
+              ? file
+              : new File([file], `screenshot-${Date.now()}.${ext}`, {
+                  type: file.type,
+                });
+          images.push(named);
+        }
+      }
+    }
+    if (images.length > 0) {
+      e.preventDefault();
+      await uploadFiles(traitId, images);
+    }
   };
 
   const onRemoveAttachment = async (traitId: Id, attachmentId: Id) => {
@@ -177,14 +208,17 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
               </div>
 
               {isOpen && (
-                <div className="mb-1 mt-1 flex flex-col gap-2 pl-6 pr-1">
+                <div
+                  className="mb-1 mt-1 flex flex-col gap-2 pl-6 pr-1"
+                  onPaste={(e) => onPaste(t.id, e)}
+                >
                   <textarea
                     autoFocus
                     value={t.description}
                     onChange={(e) =>
                       setTraitDescription(nodeId, t.id, e.target.value)
                     }
-                    placeholder="Add a description for this trait…"
+                    placeholder="Add a description… (paste ⌘V a screenshot to attach it)"
                     rows={3}
                     className="w-full resize-none rounded bg-neutral-900 px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-sky-500"
                   />
