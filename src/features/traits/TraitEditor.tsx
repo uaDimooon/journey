@@ -188,6 +188,33 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
     api.deleteAttachment(coverId).catch(() => {});
   };
 
+  // Paste an image from the clipboard onto a focused trait to set/replace its
+  // cover. (The trait's header receives the paste once it has focus.)
+  const onPasteCover = async (
+    traitId: Id,
+    previousId: Id | undefined,
+    e: React.ClipboardEvent,
+  ) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of Array.from(items)) {
+      if (item.kind === "file" && item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (!file) continue;
+        const ext = (file.type.split("/")[1] || "png").split("+")[0];
+        const named =
+          file.name && file.name !== "image.png"
+            ? file
+            : new File([file], `cover-${Date.now()}.${ext}`, {
+                type: file.type,
+              });
+        e.preventDefault();
+        await setCoverFromFile(traitId, named, previousId);
+        return;
+      }
+    }
+  };
+
   return (
     <div>
       <ul className="mb-2 flex flex-col gap-1">
@@ -284,6 +311,8 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
                   }}
                   onDragLeave={() => setCoverDropId(null)}
                   onDrop={(e) => onDropCover(t.id, t.cover?.id, e)}
+                  onPaste={(e) => onPasteCover(t.id, t.cover?.id, e)}
+                  tabIndex={0}
                 >
                   <img
                     src={api.attachmentUrl(t.cover.id)}
@@ -308,13 +337,13 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
                   <div className="absolute right-1 top-1 z-20 flex items-center rounded-md bg-black/50 opacity-0 backdrop-blur-sm transition group-hover:opacity-100">
                     {controlButtons}
                   </div>
-                  <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 p-2.5">
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 p-2.5 [&_a]:pointer-events-auto">
                     <span
                       className={`text-sm font-semibold text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)] ${
                         t.done ? "line-through opacity-80" : ""
                       }`}
                     >
-                      {t.name}
+                      {linkify(t.name)}
                     </span>
                   </div>
                 </div>
@@ -331,6 +360,7 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
                   }}
                   onDragLeave={() => setCoverDropId(null)}
                   onDrop={(e) => onDropCover(t.id, undefined, e)}
+                  onPaste={(e) => onPasteCover(t.id, undefined, e)}
                 >
                   <span
                     className="cursor-grab select-none text-neutral-600"
