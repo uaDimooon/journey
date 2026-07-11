@@ -20,6 +20,10 @@ export interface Attachment {
   size?: number;
 }
 
+/** Maximum upload size (must match the server limit). */
+export const MAX_ATTACHMENT_MB = 25;
+export const MAX_ATTACHMENT_BYTES = MAX_ATTACHMENT_MB * 1024 * 1024;
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     credentials: "include",
@@ -75,21 +79,42 @@ export const api = {
 
   /** URL to fetch/display an attachment. */
   attachmentUrl: (id: string) => `/api/attachments/${encodeURIComponent(id)}`,
-  /** Upload a file; returns its stored metadata. */
-  uploadAttachment: async (file: File): Promise<Attachment> => {
-    const res = await fetch(
-      `/api/attachments?name=${encodeURIComponent(file.name)}`,
-      {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": file.type || "application/octet-stream" },
-        body: file,
-      },
-    );
-    const data = await res.json().catch(() => null);
-    if (!res.ok) throw new Error(data?.error ?? `Upload failed (${res.status})`);
-    return (data as { attachment: Attachment }).attachment;
-  },
+  /** Upload a file with progress; returns its stored metadata. */
+  uploadAttachment: (
+    file: File,
+    onProgress?: (percent: number) => void,
+  ): Promise<Attachment> =>
+    new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `/api/attachments?name=${encodeURIComponent(file.name)}`);
+      xhr.withCredentials = true;
+      xhr.setRequestHeader(
+        "Content-Type",
+        file.type || "application/octet-stream",
+      );
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) {
+          onProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      };
+      xhr.onload = () => {
+        let data: { attachment?: Attachment; error?: string } | null = null;
+        try {
+          data = JSON.parse(xhr.responseText);
+        } catch {
+          data = null;
+        }
+        if (xhr.status >= 200 && xhr.status < 300 && data?.attachment) {
+          resolve(data.attachment);
+        } else if (xhr.status === 413) {
+          reject(new Error(`File is too large (max ${MAX_ATTACHMENT_MB} MB).`));
+        } else {
+          reject(new Error(data?.error ?? `Upload failed (${xhr.status}).`));
+        }
+      };
+      xhr.onerror = () => reject(new Error("Upload failed. Check your connection."));
+      xhr.send(file);
+    }),
   deleteAttachment: (id: string) =>
     request<{ ok: true }>(`/api/attachments/${encodeURIComponent(id)}`, {
       method: "DELETE",
