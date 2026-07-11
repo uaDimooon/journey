@@ -3,6 +3,7 @@
 
 import { useState } from "react";
 import { useGraphStore } from "../../state/graphStore";
+import { api } from "../../api/client";
 import { linkify } from "../../lib/linkify";
 import type { Id, Trait } from "../../domain/types";
 
@@ -12,11 +13,15 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
   const [editDraft, setEditDraft] = useState("");
   const [openId, setOpenId] = useState<Id | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [uploadingId, setUploadingId] = useState<Id | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const addTrait = useGraphStore((s) => s.addTrait);
   const removeTrait = useGraphStore((s) => s.removeTrait);
   const renameTrait = useGraphStore((s) => s.renameTrait);
   const setTraitDescription = useGraphStore((s) => s.setTraitDescription);
+  const addTraitAttachment = useGraphStore((s) => s.addTraitAttachment);
+  const removeTraitAttachment = useGraphStore((s) => s.removeTraitAttachment);
   const toggleTrait = useGraphStore((s) => s.toggleTrait);
   const reorderTraits = useGraphStore((s) => s.reorderTraits);
 
@@ -35,6 +40,29 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
   const commitEdit = () => {
     if (editingId && editDraft.trim()) renameTrait(nodeId, editingId, editDraft);
     setEditingId(null);
+  };
+
+  const onUpload = async (traitId: Id, files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setUploadError(null);
+    setUploadingId(traitId);
+    try {
+      for (const file of Array.from(files)) {
+        const att = await api.uploadAttachment(file);
+        addTraitAttachment(nodeId, traitId, att);
+      }
+    } catch (err) {
+      setUploadError((err as Error).message);
+    } finally {
+      setUploadingId(null);
+    }
+  };
+
+  const onRemoveAttachment = async (traitId: Id, attachmentId: Id) => {
+    removeTraitAttachment(nodeId, traitId, attachmentId);
+    api.deleteAttachment(attachmentId).catch(() => {
+      // best-effort server cleanup
+    });
   };
 
   return (
@@ -141,7 +169,7 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
               </div>
 
               {isOpen && (
-                <div className="mb-1 mt-1 pl-6 pr-1">
+                <div className="mb-1 mt-1 flex flex-col gap-2 pl-6 pr-1">
                   <textarea
                     autoFocus
                     value={t.description}
@@ -152,6 +180,66 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
                     rows={3}
                     className="w-full resize-none rounded bg-neutral-900 px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-sky-500"
                   />
+
+                  {/* Attachments */}
+                  {t.attachments.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {t.attachments.map((a) => {
+                        const url = api.attachmentUrl(a.id);
+                        const isImage = a.type.startsWith("image/");
+                        return (
+                          <div
+                            key={a.id}
+                            className="group relative flex items-center gap-1 rounded border border-neutral-700 bg-neutral-900 p-1"
+                          >
+                            {isImage ? (
+                              <a href={url} target="_blank" rel="noopener noreferrer">
+                                <img
+                                  src={url}
+                                  alt={a.name}
+                                  className="h-12 w-12 rounded object-cover"
+                                />
+                              </a>
+                            ) : (
+                              <a
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="max-w-[8rem] truncate text-xs text-sky-400 underline"
+                                title={a.name}
+                              >
+                                📎 {a.name}
+                              </a>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => onRemoveAttachment(t.id, a.id)}
+                              className="absolute -right-1.5 -top-1.5 rounded-full bg-neutral-800 px-1 text-[10px] text-neutral-300 opacity-0 hover:text-red-400 group-hover:opacity-100"
+                              aria-label={`Remove ${a.name}`}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <label className="inline-flex w-fit cursor-pointer items-center gap-1 rounded bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700">
+                    {uploadingId === t.id ? "Uploading…" : "📎 Attach files"}
+                    <input
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        onUpload(t.id, e.target.files);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                  {uploadError && (
+                    <p className="text-[11px] text-red-400">{uploadError}</p>
+                  )}
                 </div>
               )}
             </li>

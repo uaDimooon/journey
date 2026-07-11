@@ -3,7 +3,7 @@
  *  changes are synced back. Imports domain logic only. */
 
 import { create } from "zustand";
-import type { Graph, GraphNode, Id, Vec2 } from "../domain/types";
+import type { Graph, GraphNode, Id, TraitAttachment, Vec2 } from "../domain/types";
 import {
   createGoal,
   createInitialGraph,
@@ -39,6 +39,10 @@ interface GraphState {
   renameTrait: (id: Id, traitId: Id, name: string) => void;
   /** Set a trait's description. */
   setTraitDescription: (id: Id, traitId: Id, description: string) => void;
+  /** Attach a file/image reference to a trait. */
+  addTraitAttachment: (id: Id, traitId: Id, attachment: TraitAttachment) => void;
+  /** Remove an attachment reference from a trait. */
+  removeTraitAttachment: (id: Id, traitId: Id, attachmentId: Id) => void;
   toggleTrait: (id: Id, traitId: Id) => void;
   /** Reorder a node's traits by moving one from `fromIndex` to `toIndex`. */
   reorderTraits: (id: Id, fromIndex: number, toIndex: number) => void;
@@ -146,7 +150,7 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
           const node = s.graph.nodes[id];
           const t = name.trim();
           if (!node || !t || node.traits.some((tr) => tr.name === t)) return s;
-          const trait = { id: makeId("trait"), name: t, done: false, description: "" };
+          const trait = { id: makeId("trait"), name: t, done: false, description: "", attachments: [] };
           return {
             graph: {
               ...s.graph,
@@ -210,6 +214,55 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
                   ...node,
                   traits: node.traits.map((tr) =>
                     tr.id === traitId ? { ...tr, description } : tr,
+                  ),
+                },
+              },
+            },
+          };
+        }),
+
+      addTraitAttachment: (id, traitId, attachment) =>
+        set((s) => {
+          const node = s.graph.nodes[id];
+          if (!node) return s;
+          return {
+            graph: {
+              ...s.graph,
+              nodes: {
+                ...s.graph.nodes,
+                [id]: {
+                  ...node,
+                  traits: node.traits.map((tr) =>
+                    tr.id === traitId
+                      ? { ...tr, attachments: [...tr.attachments, attachment] }
+                      : tr,
+                  ),
+                },
+              },
+            },
+          };
+        }),
+
+      removeTraitAttachment: (id, traitId, attachmentId) =>
+        set((s) => {
+          const node = s.graph.nodes[id];
+          if (!node) return s;
+          return {
+            graph: {
+              ...s.graph,
+              nodes: {
+                ...s.graph.nodes,
+                [id]: {
+                  ...node,
+                  traits: node.traits.map((tr) =>
+                    tr.id === traitId
+                      ? {
+                          ...tr,
+                          attachments: tr.attachments.filter(
+                            (a) => a.id !== attachmentId,
+                          ),
+                        }
+                      : tr,
                   ),
                 },
               },

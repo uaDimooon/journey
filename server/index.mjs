@@ -58,6 +58,19 @@ db.exec(`CREATE TABLE IF NOT EXISTS journeys (
   updated_at INTEGER NOT NULL
 );`);
 db.exec("CREATE INDEX IF NOT EXISTS idx_journeys_user ON journeys(user_id);");
+db.exec(`CREATE TABLE IF NOT EXISTS attachments (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_attachments_user ON attachments(user_id);");
+
+// Files are stored on disk next to the DB (outside the repo), one file per id.
+const filesDir = path.join(path.dirname(dbPath), "attachments");
+fs.mkdirSync(filesDir, { recursive: true });
 
 const SESSION_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
 
@@ -279,6 +292,57 @@ app.delete("/api/journeys/:id", requireUser, (req, res) => {
   if (result.changes === 0) {
     return res.status(404).json({ error: "Journey not found." });
   }
+  res.json({ ok: true });
+});
+
+// --- Attachments (files & images) ------------------------------------------
+const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25 MB
+const rawBody = express.raw({ type: () => true, limit: MAX_FILE_BYTES });
+
+// Upload a file. Body is the raw bytes; name via ?name=, type via Content-Type.
+app.post("/api/attachments", requireUser, rawBody, (req, res) => {
+  const buf = req.body;
+  if (!Buffer.isBuffer(buf) || buf.length === 0) {
+    return res.status(400).json({ error: "Empty file." });
+  }
+  const name = String(req.query.name || "file").slice(0, 200);
+  const type = String(req.headers["content-type"] || "application/octet-stream").slice(0, 100);
+  const id = uid();
+  fs.writeFileSync(path.join(filesDir, id), buf);
+  db.prepare(
+    "INSERT INTO attachments (id, user_id, name, type, size, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+  ).run(id, req.user.id, name, type, buf.length, Date.now());
+  res.json({ attachment: { id, name, type, size: buf.length } });
+});
+
+// Serve a file (owner only). Images render inline; everything else downloads.
+app.get("/api/attachments/:id", requireUser, (req, res) => {
+  const row = db
+    .prepare("SELECT * FROM attachments WHERE id = ? AND user_id = ?")
+    .get(req.params.id, req.user.id);
+  if (!row) return res.status(404).json({ error: "Not found." });
+  const file = path.join(filesDir, row.id);
+  if (!fs.existsSync(file)) return res.status(404).json({ error: "File missing." });
+  const isImage = row.type.startsWith("image/");
+  res.setHeader("Content-Type", isImage ? row.type : "application/octet-stream");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  // Sandbox user content so a malicious SVG/HTML can't run scripts in our origin.
+  res.setHeader("Content-Security-Policy", "sandbox; default-src 'none'");
+  res.setHeader(
+    "Content-Disposition",
+    `${isImage ? "inline" : "attachment"}; filename="${encodeURIComponent(row.name)}"`,
+  );
+  fs.createReadStream(file).pipe(res);
+});
+
+// Delete a file.
+app.delete("/api/attachments/:id", requireUser, (req, res) => {
+  const row = db
+    .prepare("SELECT id FROM attachments WHERE id = ? AND user_id = ?")
+    .get(req.params.id, req.user.id);
+  if (!row) return res.status(404).json({ error: "Not found." });
+  db.prepare("DELETE FROM attachments WHERE id = ?").run(row.id);
+  fs.rmSync(path.join(filesDir, row.id), { force: true });
   res.json({ ok: true });
 });
 
