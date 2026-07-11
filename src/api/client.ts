@@ -13,6 +13,13 @@ export interface JourneySummary {
   updatedAt: number;
 }
 
+export interface Attachment {
+  id: string;
+  name: string;
+  type: string;
+  size?: number;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     credentials: "include",
@@ -63,6 +70,28 @@ export const api = {
     ),
   deleteJourney: (id: string) =>
     request<{ ok: true }>(`/api/journeys/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
+
+  /** URL to fetch/display an attachment. */
+  attachmentUrl: (id: string) => `/api/attachments/${encodeURIComponent(id)}`,
+  /** Upload a file; returns its stored metadata. */
+  uploadAttachment: async (file: File): Promise<Attachment> => {
+    const res = await fetch(
+      `/api/attachments?name=${encodeURIComponent(file.name)}`,
+      {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      },
+    );
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(data?.error ?? `Upload failed (${res.status})`);
+    return (data as { attachment: Attachment }).attachment;
+  },
+  deleteAttachment: (id: string) =>
+    request<{ ok: true }>(`/api/attachments/${encodeURIComponent(id)}`, {
       method: "DELETE",
     }),
 };

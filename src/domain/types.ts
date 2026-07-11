@@ -12,6 +12,14 @@ export type NodeKind = "start" | "goal";
 /** Progress state of a goal. */
 export type GoalStatus = "next-up" | "in-progress" | "done";
 
+/** A file or image attached to a trait. Bytes live on the server; the graph
+ *  only stores this reference. */
+export interface TraitAttachment {
+  id: Id;
+  name: string;
+  type: string;
+}
+
 /** A trait/tag on a node. Can be renamed, reordered, and checked off. */
 export interface Trait {
   id: Id;
@@ -19,6 +27,8 @@ export interface Trait {
   done: boolean;
   /** Optional longer description, shown when the trait is opened. */
   description: string;
+  /** Files/images attached to the trait. */
+  attachments: TraitAttachment[];
 }
 
 export interface GraphNode {
