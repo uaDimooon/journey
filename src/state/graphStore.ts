@@ -37,6 +37,8 @@ interface GraphState {
   addTrait: (id: Id, name: string) => void;
   removeTrait: (id: Id, traitId: Id) => void;
   renameTrait: (id: Id, traitId: Id, name: string) => void;
+  /** Set a trait's description. */
+  setTraitDescription: (id: Id, traitId: Id, description: string) => void;
   toggleTrait: (id: Id, traitId: Id) => void;
   /** Reorder a node's traits by moving one from `fromIndex` to `toIndex`. */
   reorderTraits: (id: Id, fromIndex: number, toIndex: number) => void;
@@ -144,7 +146,7 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
           const node = s.graph.nodes[id];
           const t = name.trim();
           if (!node || !t || node.traits.some((tr) => tr.name === t)) return s;
-          const trait = { id: makeId("trait"), name: t, done: false };
+          const trait = { id: makeId("trait"), name: t, done: false, description: "" };
           return {
             graph: {
               ...s.graph,
@@ -188,6 +190,26 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
                   ...node,
                   traits: node.traits.map((tr) =>
                     tr.id === traitId ? { ...tr, name: t } : tr,
+                  ),
+                },
+              },
+            },
+          };
+        }),
+
+      setTraitDescription: (id, traitId, description) =>
+        set((s) => {
+          const node = s.graph.nodes[id];
+          if (!node) return s;
+          return {
+            graph: {
+              ...s.graph,
+              nodes: {
+                ...s.graph.nodes,
+                [id]: {
+                  ...node,
+                  traits: node.traits.map((tr) =>
+                    tr.id === traitId ? { ...tr, description } : tr,
                   ),
                 },
               },
