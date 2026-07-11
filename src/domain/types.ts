@@ -17,6 +17,8 @@ export interface Trait {
   id: Id;
   name: string;
   done: boolean;
+  /** Optional longer description, shown when the trait is opened. */
+  description: string;
 }
 
 export interface GraphNode {
