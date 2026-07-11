@@ -29,6 +29,8 @@ export interface Trait {
   description: string;
   /** Files/images attached to the trait. */
   attachments: TraitAttachment[];
+  /** Optional square cover image displayed behind the trait's title. */
+  cover?: TraitAttachment | null;
 }
 
 export interface GraphNode {

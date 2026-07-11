@@ -43,6 +43,8 @@ interface GraphState {
   addTraitAttachment: (id: Id, traitId: Id, attachment: TraitAttachment) => void;
   /** Remove an attachment reference from a trait. */
   removeTraitAttachment: (id: Id, traitId: Id, attachmentId: Id) => void;
+  /** Set or clear a trait's square cover image. */
+  setTraitCover: (id: Id, traitId: Id, cover: TraitAttachment | null) => void;
   toggleTrait: (id: Id, traitId: Id) => void;
   /** Reorder a node's traits by moving one from `fromIndex` to `toIndex`. */
   reorderTraits: (id: Id, fromIndex: number, toIndex: number) => void;
@@ -263,6 +265,26 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
                           ),
                         }
                       : tr,
+                  ),
+                },
+              },
+            },
+          };
+        }),
+
+      setTraitCover: (id, traitId, cover) =>
+        set((s) => {
+          const node = s.graph.nodes[id];
+          if (!node) return s;
+          return {
+            graph: {
+              ...s.graph,
+              nodes: {
+                ...s.graph.nodes,
+                [id]: {
+                  ...node,
+                  traits: node.traits.map((tr) =>
+                    tr.id === traitId ? { ...tr, cover } : tr,
                   ),
                 },
               },
