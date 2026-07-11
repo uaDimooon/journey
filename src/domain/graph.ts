@@ -13,13 +13,14 @@ export function makeId(prefix = "n"): Id {
 /** Coerce a raw trait (legacy string or object) into a Trait. */
 export function normalizeTrait(raw: unknown): Trait {
   if (typeof raw === "string") {
-    return { id: makeId("trait"), name: raw, done: false };
+    return { id: makeId("trait"), name: raw, done: false, description: "" };
   }
   const t = (raw ?? {}) as Partial<Trait>;
   return {
     id: t.id ?? makeId("trait"),
     name: typeof t.name === "string" ? t.name : "",
     done: Boolean(t.done),
+    description: typeof t.description === "string" ? t.description : "",
   };
 }
 
