@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useGraphStore } from "../../state/graphStore";
 import { api, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_MB } from "../../api/client";
 import { linkify } from "../../lib/linkify";
+import { PdfViewer } from "./PdfViewer";
 import type { Id, Trait } from "../../domain/types";
 
 export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] }) {
@@ -17,9 +18,11 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [dropTraitId, setDropTraitId] = useState<Id | null>(null);
-  const [preview, setPreview] = useState<{ url: string; name: string } | null>(
-    null,
-  );
+  const [preview, setPreview] = useState<{
+    url: string;
+    name: string;
+    type: string;
+  } | null>(null);
 
   const addTrait = useGraphStore((s) => s.addTrait);
   const removeTrait = useGraphStore((s) => s.removeTrait);
@@ -250,6 +253,7 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
                       {t.attachments.map((a) => {
                         const url = api.attachmentUrl(a.id);
                         const isImage = a.type.startsWith("image/");
+                        const isPdf = a.type === "application/pdf";
                         return (
                           <div
                             key={a.id}
@@ -258,7 +262,9 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
                             {isImage ? (
                               <button
                                 type="button"
-                                onClick={() => setPreview({ url, name: a.name })}
+                                onClick={() =>
+                                  setPreview({ url, name: a.name, type: a.type })
+                                }
                                 title={`Preview ${a.name}`}
                               >
                                 <img
@@ -266,6 +272,17 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
                                   alt={a.name}
                                   className="h-12 w-12 cursor-zoom-in rounded object-cover"
                                 />
+                              </button>
+                            ) : isPdf ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setPreview({ url, name: a.name, type: a.type })
+                                }
+                                className="max-w-[8rem] truncate text-xs text-sky-400 underline"
+                                title={`Preview ${a.name}`}
+                              >
+                                📄 {a.name}
                               </button>
                             ) : (
                               <a
@@ -354,14 +371,18 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
             className="flex max-h-full max-w-full flex-col items-center gap-3"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex max-h-[80vh] items-center justify-center overflow-auto rounded-lg bg-neutral-900 p-2 shadow-2xl ring-1 ring-white/10">
-              <img
-                src={preview.url}
-                alt={preview.name}
-                className="max-h-[76vh] max-w-[88vw] object-contain"
-                style={{ imageRendering: "auto" }}
-              />
-            </div>
+            {preview.type === "application/pdf" ? (
+              <PdfViewer url={preview.url} />
+            ) : (
+              <div className="flex max-h-[80vh] items-center justify-center overflow-auto rounded-lg bg-neutral-900 p-2 shadow-2xl ring-1 ring-white/10">
+                <img
+                  src={preview.url}
+                  alt={preview.name}
+                  className="max-h-[76vh] max-w-[88vw] object-contain"
+                  style={{ imageRendering: "auto" }}
+                />
+              </div>
+            )}
             <div className="flex items-center gap-3">
               <span className="max-w-[50vw] truncate text-sm text-neutral-300">
                 {preview.name}

@@ -324,13 +324,16 @@ app.get("/api/attachments/:id", requireUser, (req, res) => {
   const file = path.join(filesDir, row.id);
   if (!fs.existsSync(file)) return res.status(404).json({ error: "File missing." });
   const isImage = row.type.startsWith("image/");
-  res.setHeader("Content-Type", isImage ? row.type : "application/octet-stream");
+  const isPdf = row.type === "application/pdf";
+  const inline = isImage || isPdf;
+  res.setHeader("Content-Type", inline ? row.type : "application/octet-stream");
   res.setHeader("X-Content-Type-Options", "nosniff");
   // Sandbox user content so a malicious SVG/HTML can't run scripts in our origin.
+  // PDFs are rendered in-app via PDF.js (canvas), so the sandbox is safe here too.
   res.setHeader("Content-Security-Policy", "sandbox; default-src 'none'");
   res.setHeader(
     "Content-Disposition",
-    `${isImage ? "inline" : "attachment"}; filename="${encodeURIComponent(row.name)}"`,
+    `${inline ? "inline" : "attachment"}; filename="${encodeURIComponent(row.name)}"`,
   );
   fs.createReadStream(file).pipe(res);
 });
