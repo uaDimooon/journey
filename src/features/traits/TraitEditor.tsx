@@ -292,31 +292,36 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
 
       {preview && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-6"
           onClick={() => setPreview(null)}
         >
           <div
-            className="flex max-h-full max-w-full flex-col items-center gap-2"
+            className="flex max-h-full max-w-full flex-col items-center gap-3"
             onClick={(e) => e.stopPropagation()}
           >
-            <img
-              src={preview.url}
-              alt={preview.name}
-              className="max-h-[80vh] max-w-[90vw] rounded object-contain"
-            />
-            <div className="flex items-center gap-3 text-sm text-neutral-300">
-              <span className="max-w-[60vw] truncate">{preview.name}</span>
+            <div className="flex max-h-[80vh] items-center justify-center overflow-auto rounded-lg bg-neutral-900 p-2 shadow-2xl ring-1 ring-white/10">
+              <img
+                src={preview.url}
+                alt={preview.name}
+                className="max-h-[76vh] max-w-[88vw] object-contain"
+                style={{ imageRendering: "auto" }}
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="max-w-[50vw] truncate text-sm text-neutral-300">
+                {preview.name}
+              </span>
               <a
                 href={preview.url}
                 download={preview.name}
-                className="text-sky-400 underline hover:text-sky-300"
+                className="rounded bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-500"
               >
-                Download
+                ⬇ Download
               </a>
               <button
                 type="button"
                 onClick={() => setPreview(null)}
-                className="text-neutral-400 hover:text-white"
+                className="rounded bg-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:bg-neutral-600"
               >
                 Close
               </button>
