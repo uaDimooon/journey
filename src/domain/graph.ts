@@ -1,6 +1,6 @@
 /** Pure graph logic: creation, edge validation (DAG), and queries. */
 
-import type { Edge, Graph, GraphNode, Id, Trait, Vec2 } from "./types";
+import type { Edge, Graph, GraphNode, Id, Trait, TraitAttachment, Vec2 } from "./types";
 import { randomColor } from "./color";
 import { BASE_NODE_RADIUS } from "./geometry";
 
@@ -13,15 +13,21 @@ export function makeId(prefix = "n"): Id {
 /** Coerce a raw trait (legacy string or object) into a Trait. */
 export function normalizeTrait(raw: unknown): Trait {
   if (typeof raw === "string") {
-    return { id: makeId("trait"), name: raw, done: false, description: "", attachments: [] };
+    return { id: makeId("trait"), name: raw, done: false, description: "", attachments: [], cover: null };
   }
   const t = (raw ?? {}) as Partial<Trait>;
+  const rawCover = t.cover as Partial<TraitAttachment> | null | undefined;
+  const cover =
+    rawCover && typeof rawCover.id === "string"
+      ? { id: rawCover.id, name: rawCover.name ?? "", type: rawCover.type ?? "image/*" }
+      : null;
   return {
     id: t.id ?? makeId("trait"),
     name: typeof t.name === "string" ? t.name : "",
     done: Boolean(t.done),
     description: typeof t.description === "string" ? t.description : "",
     attachments: Array.isArray(t.attachments) ? t.attachments : [],
+    cover,
   };
 }
 

@@ -18,6 +18,8 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [dropTraitId, setDropTraitId] = useState<Id | null>(null);
+  const [coverDropId, setCoverDropId] = useState<Id | null>(null);
+  const [coverBusyId, setCoverBusyId] = useState<Id | null>(null);
   const [preview, setPreview] = useState<{
     url: string;
     name: string;
@@ -30,6 +32,7 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
   const setTraitDescription = useGraphStore((s) => s.setTraitDescription);
   const addTraitAttachment = useGraphStore((s) => s.addTraitAttachment);
   const removeTraitAttachment = useGraphStore((s) => s.removeTraitAttachment);
+  const setTraitCover = useGraphStore((s) => s.setTraitCover);
   const toggleTrait = useGraphStore((s) => s.toggleTrait);
   const reorderTraits = useGraphStore((s) => s.reorderTraits);
 
@@ -118,6 +121,55 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
     });
   };
 
+  // Upload an image and set it as the trait's square cover. Replacing an
+  // existing cover deletes the old file on the server.
+  const setCoverFromFile = async (
+    traitId: Id,
+    file: File,
+    previousId?: Id,
+  ) => {
+    if (!file.type.startsWith("image/")) {
+      setUploadError("A cover must be an image.");
+      return;
+    }
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      setUploadError(`"${file.name}" is too large (max ${MAX_ATTACHMENT_MB} MB).`);
+      return;
+    }
+    setUploadError(null);
+    setCoverBusyId(traitId);
+    try {
+      const att = await api.uploadAttachment(file);
+      setTraitCover(nodeId, traitId, att);
+      if (previousId) api.deleteAttachment(previousId).catch(() => {});
+    } catch (err) {
+      setUploadError((err as Error).message);
+    } finally {
+      setCoverBusyId(null);
+    }
+  };
+
+  // Drop an image onto a trait's name to assign it as the cover.
+  const onDropCover = async (
+    traitId: Id,
+    previousId: Id | undefined,
+    e: React.DragEvent,
+  ) => {
+    const file = Array.from(e.dataTransfer?.files ?? []).find((f) =>
+      f.type.startsWith("image/"),
+    );
+    if (!file) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setCoverDropId(null);
+    await setCoverFromFile(traitId, file, previousId);
+  };
+
+  const onRemoveCover = (traitId: Id, coverId: Id) => {
+    setTraitCover(nodeId, traitId, null);
+    api.deleteAttachment(coverId).catch(() => {});
+  };
+
   return (
     <div>
       <ul className="mb-2 flex flex-col gap-1">
@@ -126,6 +178,45 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
         )}
         {traits.map((t, index) => {
           const isOpen = openId === t.id;
+          const controlButtons = (
+            <>
+              <button
+                type="button"
+                onClick={() => startEdit(t)}
+                className="px-0.5 text-neutral-400 hover:text-white"
+                aria-label={`Rename ${t.name}`}
+                title="Rename"
+              >
+                ✎
+              </button>
+              <button
+                type="button"
+                onClick={() => reorderTraits(nodeId, index, index - 1)}
+                disabled={index === 0}
+                className="px-0.5 text-neutral-400 hover:text-white disabled:opacity-30"
+                aria-label="Move up"
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                onClick={() => reorderTraits(nodeId, index, index + 1)}
+                disabled={index === traits.length - 1}
+                className="px-0.5 text-neutral-400 hover:text-white disabled:opacity-30"
+                aria-label="Move down"
+              >
+                ↓
+              </button>
+              <button
+                type="button"
+                onClick={() => removeTrait(nodeId, t.id)}
+                className="px-0.5 text-neutral-400 hover:text-white"
+                aria-label={`Remove ${t.name}`}
+              >
+                ×
+              </button>
+            </>
+          );
           return (
             <li
               key={t.id}
@@ -138,22 +229,16 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
               }}
               className={`rounded ${dragIndex === index ? "opacity-50" : ""}`}
             >
-              <div className="group flex items-center gap-1.5 rounded px-1 py-0.5 text-xs hover:bg-neutral-800">
-                <span
-                  className="cursor-grab select-none text-neutral-600"
-                  title="Drag to reorder"
-                >
-                  ⠿
-                </span>
-                <input
-                  type="checkbox"
-                  checked={t.done}
-                  onChange={() => toggleTrait(nodeId, t.id)}
-                  className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-sky-500"
-                  aria-label={`Mark ${t.name} done`}
-                />
-
-                {editingId === t.id ? (
+              {editingId === t.id ? (
+                <div className="flex items-center gap-1.5 rounded px-1 py-0.5 text-xs">
+                  <span className="select-none text-neutral-600">⠿</span>
+                  <input
+                    type="checkbox"
+                    checked={t.done}
+                    onChange={() => toggleTrait(nodeId, t.id)}
+                    className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-sky-500"
+                    aria-label={`Mark ${t.name} done`}
+                  />
                   <input
                     autoFocus
                     value={editDraft}
@@ -165,7 +250,83 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
                     }}
                     className="min-w-0 flex-1 rounded bg-neutral-900 px-1 py-0.5 outline-none focus:ring-1 focus:ring-sky-500"
                   />
-                ) : (
+                </div>
+              ) : t.cover ? (
+                <div
+                  className={`group relative aspect-square w-full overflow-hidden rounded-lg ring-1 transition ${
+                    coverDropId === t.id
+                      ? "ring-2 ring-sky-400"
+                      : "ring-neutral-700"
+                  } ${t.done ? "opacity-60" : ""}`}
+                  onDragOver={(e) => {
+                    if (Array.from(e.dataTransfer.types).includes("Files")) {
+                      e.preventDefault();
+                      setCoverDropId(t.id);
+                    }
+                  }}
+                  onDragLeave={() => setCoverDropId(null)}
+                  onDrop={(e) => onDropCover(t.id, t.cover?.id, e)}
+                >
+                  <img
+                    src={api.attachmentUrl(t.cover.id)}
+                    alt=""
+                    className="absolute inset-0 h-full w-full object-cover"
+                  />
+                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-black/5" />
+                  <button
+                    type="button"
+                    onClick={() => setOpenId(isOpen ? null : t.id)}
+                    aria-expanded={isOpen}
+                    aria-label={`Open ${t.name}`}
+                    className="absolute inset-0 z-0 cursor-pointer"
+                  />
+                  <input
+                    type="checkbox"
+                    checked={t.done}
+                    onChange={() => toggleTrait(nodeId, t.id)}
+                    className="absolute left-2 top-2 z-20 h-4 w-4 cursor-pointer accent-sky-500"
+                    aria-label={`Mark ${t.name} done`}
+                  />
+                  <div className="absolute right-1 top-1 z-20 flex items-center rounded-md bg-black/50 opacity-0 backdrop-blur-sm transition group-hover:opacity-100">
+                    {controlButtons}
+                  </div>
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 p-2.5">
+                    <span
+                      className={`text-sm font-semibold text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)] ${
+                        t.done ? "line-through opacity-80" : ""
+                      }`}
+                    >
+                      {t.name}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className={`group flex items-center gap-1.5 rounded px-1 py-0.5 text-xs hover:bg-neutral-800 ${
+                    coverDropId === t.id ? "ring-2 ring-sky-400" : ""
+                  }`}
+                  onDragOver={(e) => {
+                    if (Array.from(e.dataTransfer.types).includes("Files")) {
+                      e.preventDefault();
+                      setCoverDropId(t.id);
+                    }
+                  }}
+                  onDragLeave={() => setCoverDropId(null)}
+                  onDrop={(e) => onDropCover(t.id, undefined, e)}
+                >
+                  <span
+                    className="cursor-grab select-none text-neutral-600"
+                    title="Drag to reorder"
+                  >
+                    ⠿
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={t.done}
+                    onChange={() => toggleTrait(nodeId, t.id)}
+                    className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-sky-500"
+                    aria-label={`Mark ${t.name} done`}
+                  />
                   <button
                     type="button"
                     onClick={() => setOpenId(isOpen ? null : t.id)}
@@ -180,46 +341,11 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
                     </span>
                     {linkify(t.name)}
                   </button>
-                )}
-
-                <div className="flex items-center opacity-0 group-hover:opacity-100">
-                  <button
-                    type="button"
-                    onClick={() => startEdit(t)}
-                    className="px-0.5 text-neutral-400 hover:text-white"
-                    aria-label={`Rename ${t.name}`}
-                    title="Rename"
-                  >
-                    ✎
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => reorderTraits(nodeId, index, index - 1)}
-                    disabled={index === 0}
-                    className="px-0.5 text-neutral-400 hover:text-white disabled:opacity-30"
-                    aria-label="Move up"
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => reorderTraits(nodeId, index, index + 1)}
-                    disabled={index === traits.length - 1}
-                    className="px-0.5 text-neutral-400 hover:text-white disabled:opacity-30"
-                    aria-label="Move down"
-                  >
-                    ↓
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => removeTrait(nodeId, t.id)}
-                    className="px-0.5 text-neutral-400 hover:text-white"
-                    aria-label={`Remove ${t.name}`}
-                  >
-                    ×
-                  </button>
+                  <div className="flex items-center opacity-0 group-hover:opacity-100">
+                    {controlButtons}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {isOpen && (
                 <div
@@ -246,6 +372,55 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
                     rows={3}
                     className="w-full resize-none rounded bg-neutral-900 px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-sky-500"
                   />
+
+                  {/* Cover image */}
+                  <div className="flex items-center gap-2">
+                    {t.cover ? (
+                      <>
+                        <img
+                          src={api.attachmentUrl(t.cover.id)}
+                          alt=""
+                          className="h-10 w-10 shrink-0 rounded object-cover ring-1 ring-neutral-700"
+                        />
+                        <label className="inline-flex cursor-pointer items-center gap-1 rounded bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700">
+                          {coverBusyId === t.id ? "Updating…" : "Replace cover"}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (f) setCoverFromFile(t.id, f, t.cover?.id);
+                              e.target.value = "";
+                            }}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => onRemoveCover(t.id, t.cover!.id)}
+                          className="text-xs text-neutral-400 hover:text-red-400"
+                        >
+                          Remove cover
+                        </button>
+                      </>
+                    ) : (
+                      <label className="inline-flex cursor-pointer items-center gap-1 rounded bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700">
+                        {coverBusyId === t.id
+                          ? "Uploading…"
+                          : "🖼️ Set cover image"}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) setCoverFromFile(t.id, f);
+                            e.target.value = "";
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
 
                   {/* Attachments */}
                   {t.attachments.length > 0 && (
