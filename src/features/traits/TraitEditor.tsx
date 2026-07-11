@@ -16,6 +16,7 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
   const [uploadingId, setUploadingId] = useState<Id | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [dropTraitId, setDropTraitId] = useState<Id | null>(null);
   const [preview, setPreview] = useState<{ url: string; name: string } | null>(
     null,
   );
@@ -94,6 +95,16 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
     if (images.length > 0) {
       e.preventDefault();
       await uploadFiles(traitId, images);
+    }
+  };
+
+  const onDrop = async (traitId: Id, e: React.DragEvent) => {
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      setDropTraitId(null);
+      await uploadFiles(traitId, Array.from(files));
     }
   };
 
@@ -209,8 +220,18 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
 
               {isOpen && (
                 <div
-                  className="mb-1 mt-1 flex flex-col gap-2 pl-6 pr-1"
+                  className={`mb-1 mt-1 flex flex-col gap-2 rounded pl-6 pr-1 ${
+                    dropTraitId === t.id ? "ring-2 ring-sky-500" : ""
+                  }`}
                   onPaste={(e) => onPaste(t.id, e)}
+                  onDragOver={(e) => {
+                    if (Array.from(e.dataTransfer.types).includes("Files")) {
+                      e.preventDefault();
+                      setDropTraitId(t.id);
+                    }
+                  }}
+                  onDragLeave={() => setDropTraitId(null)}
+                  onDrop={(e) => onDrop(t.id, e)}
                 >
                   <textarea
                     autoFocus
@@ -218,7 +239,7 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
                     onChange={(e) =>
                       setTraitDescription(nodeId, t.id, e.target.value)
                     }
-                    placeholder="Add a description… (paste ⌘V a screenshot to attach it)"
+                    placeholder="Add a description… (paste ⌘V or drop files to attach)"
                     rows={3}
                     className="w-full resize-none rounded bg-neutral-900 px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-sky-500"
                   />
