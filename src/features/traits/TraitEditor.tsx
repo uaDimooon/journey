@@ -1,7 +1,7 @@
 /** Trait editor: add, rename, describe, check off, reorder, and remove.
  *  Clicking a trait opens its description editor. */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useGraphStore } from "../../state/graphStore";
 import { api, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_MB } from "../../api/client";
 import { linkify } from "../../lib/linkify";
@@ -21,10 +21,28 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
   const [coverDropId, setCoverDropId] = useState<Id | null>(null);
   const [coverBusyId, setCoverBusyId] = useState<Id | null>(null);
   const [preview, setPreview] = useState<{
-    url: string;
-    name: string;
-    type: string;
+    items: { id: string; name: string; type: string }[];
+    index: number;
   } | null>(null);
+
+  const previewItem = preview ? preview.items[preview.index] : null;
+  const stepPreview = (delta: number) =>
+    setPreview((p) =>
+      p
+        ? { ...p, index: (p.index + delta + p.items.length) % p.items.length }
+        : p,
+    );
+  useEffect(() => {
+    if (!preview) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPreview(null);
+      else if (e.key === "ArrowRight") stepPreview(1);
+      else if (e.key === "ArrowLeft") stepPreview(-1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preview]);
 
   const addTrait = useGraphStore((s) => s.addTrait);
   const removeTrait = useGraphStore((s) => s.removeTrait);
@@ -437,9 +455,25 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
                             {isImage ? (
                               <button
                                 type="button"
-                                onClick={() =>
-                                  setPreview({ url, name: a.name, type: a.type })
-                                }
+                                onClick={() => {
+                                  const items = t.attachments
+                                    .filter(
+                                      (x) =>
+                                        x.type.startsWith("image/") ||
+                                        x.type === "application/pdf",
+                                    )
+                                    .map((x) => ({
+                                      id: x.id,
+                                      name: x.name,
+                                      type: x.type,
+                                    }));
+                                  setPreview({
+                                    items,
+                                    index: items.findIndex(
+                                      (x) => x.id === a.id,
+                                    ),
+                                  });
+                                }}
                                 title={`Preview ${a.name}`}
                               >
                                 <img
@@ -451,9 +485,25 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
                             ) : isPdf ? (
                               <button
                                 type="button"
-                                onClick={() =>
-                                  setPreview({ url, name: a.name, type: a.type })
-                                }
+                                onClick={() => {
+                                  const items = t.attachments
+                                    .filter(
+                                      (x) =>
+                                        x.type.startsWith("image/") ||
+                                        x.type === "application/pdf",
+                                    )
+                                    .map((x) => ({
+                                      id: x.id,
+                                      name: x.name,
+                                      type: x.type,
+                                    }));
+                                  setPreview({
+                                    items,
+                                    index: items.findIndex(
+                                      (x) => x.id === a.id,
+                                    ),
+                                  });
+                                }}
                                 className="max-w-[8rem] truncate text-xs text-sky-400 underline"
                                 title={`Preview ${a.name}`}
                               >
@@ -537,34 +587,52 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
         </button>
       </div>
 
-      {preview && (
+      {preview && previewItem && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-6"
           onClick={() => setPreview(null)}
         >
+          {preview.items.length > 1 && (
+            <button
+              type="button"
+              aria-label="Previous"
+              onClick={(e) => {
+                e.stopPropagation();
+                stepPreview(-1);
+              }}
+              className="absolute left-3 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/50 px-3 py-2 text-2xl leading-none text-white hover:bg-black/70"
+            >
+              ‹
+            </button>
+          )}
           <div
             className="flex max-h-full max-w-full flex-col items-center gap-3"
             onClick={(e) => e.stopPropagation()}
           >
-            {preview.type === "application/pdf" ? (
-              <PdfViewer url={preview.url} />
+            {previewItem.type === "application/pdf" ? (
+              <PdfViewer url={api.attachmentUrl(previewItem.id)} />
             ) : (
               <div className="flex max-h-[80vh] items-center justify-center overflow-auto rounded-lg bg-neutral-900 p-2 shadow-2xl ring-1 ring-white/10">
                 <img
-                  src={preview.url}
-                  alt={preview.name}
+                  src={api.attachmentUrl(previewItem.id)}
+                  alt={previewItem.name}
                   className="max-h-[76vh] max-w-[88vw] object-contain"
                   style={{ imageRendering: "auto" }}
                 />
               </div>
             )}
             <div className="flex items-center gap-3">
-              <span className="max-w-[50vw] truncate text-sm text-neutral-300">
-                {preview.name}
+              {preview.items.length > 1 && (
+                <span className="text-xs tabular-nums text-neutral-400">
+                  {preview.index + 1} / {preview.items.length}
+                </span>
+              )}
+              <span className="max-w-[40vw] truncate text-sm text-neutral-300">
+                {previewItem.name}
               </span>
               <a
-                href={preview.url}
-                download={preview.name}
+                href={api.attachmentUrl(previewItem.id)}
+                download={previewItem.name}
                 className="rounded bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-500"
               >
                 ⬇ Download
@@ -578,6 +646,19 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
               </button>
             </div>
           </div>
+          {preview.items.length > 1 && (
+            <button
+              type="button"
+              aria-label="Next"
+              onClick={(e) => {
+                e.stopPropagation();
+                stepPreview(1);
+              }}
+              className="absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/50 px-3 py-2 text-2xl leading-none text-white hover:bg-black/70"
+            >
+              ›
+            </button>
+          )}
         </div>
       )}
     </div>
