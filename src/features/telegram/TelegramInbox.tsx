@@ -21,7 +21,7 @@ function firstLine(text: string | null): string {
 function itemTitle(item: InboxItem): string {
   const line = firstLine(item.text);
   if (line) return line.slice(0, 80);
-  if (item.attachment) return item.attachment.name;
+  if (item.attachments.length) return item.attachments[0].name;
   return item.source ? `From ${item.source}` : "Telegram item";
 }
 
@@ -49,19 +49,23 @@ function descWithProvenance(item: InboxItem): string {
   return body ? `${body}\n\n${p}` : p;
 }
 
-function coverOrAttachment(item: InboxItem): {
+// Map an item's attachments onto trait fields: a single image becomes the
+// cover; multiple files are all attached (with the first image as a cover tile).
+function traitMediaProps(item: InboxItem): {
   cover?: { id: string; name: string; type: string };
   attachments?: { id: string; name: string; type: string }[];
 } {
-  if (!item.attachment) return {};
-  const a = {
-    id: item.attachment.id,
-    name: item.attachment.name,
-    type: item.attachment.type,
-  };
-  return item.attachment.type.startsWith("image/")
-    ? { cover: a }
-    : { attachments: [a] };
+  const atts = item.attachments.map((a) => ({
+    id: a.id,
+    name: a.name,
+    type: a.type,
+  }));
+  if (atts.length === 0) return {};
+  const images = atts.filter((a) => a.type.startsWith("image/"));
+  if (atts.length === 1) {
+    return images.length === 1 ? { cover: images[0] } : { attachments: atts };
+  }
+  return { attachments: atts, ...(images.length ? { cover: images[0] } : {}) };
 }
 
 export function TelegramInbox() {
@@ -116,10 +120,10 @@ export function TelegramInbox() {
           name: itemTitle(item),
           description: descWithProvenance(item),
         });
-        if (item.attachment) {
+        if (item.attachments.length) {
           addTraitDetailed(goalId, {
-            name: item.attachment.name,
-            ...coverOrAttachment(item),
+            name: itemTitle(item),
+            ...traitMediaProps(item),
           });
         }
       }
@@ -137,7 +141,7 @@ export function TelegramInbox() {
       addTraitDetailed(selectedId, {
         name: itemTitle(item),
         description: descWithProvenance(item),
-        ...coverOrAttachment(item),
+        ...traitMediaProps(item),
       });
       await api.telegramInboxImport(item.id);
       await refresh();
@@ -166,7 +170,10 @@ export function TelegramInbox() {
       </div>
       <ul className="flex flex-col gap-2">
         {items.map((item) => {
-          const isImage = item.attachment?.type.startsWith("image/");
+          const firstImage = item.attachments.find((a) =>
+            a.type.startsWith("image/"),
+          );
+          const extra = item.attachments.length - 1;
           const busy = busyId === item.id;
           return (
             <li
@@ -174,15 +181,27 @@ export function TelegramInbox() {
               className="rounded-md border border-neutral-800 bg-neutral-900 p-2"
             >
               <div className="flex gap-2">
-                {item.attachment && isImage ? (
-                  <img
-                    src={api.attachmentUrl(item.attachment.id)}
-                    alt=""
-                    className="h-12 w-12 shrink-0 rounded object-cover ring-1 ring-neutral-700"
-                  />
+                {firstImage ? (
+                  <div className="relative h-12 w-12 shrink-0">
+                    <img
+                      src={api.attachmentUrl(firstImage.id)}
+                      alt=""
+                      className="h-12 w-12 rounded object-cover ring-1 ring-neutral-700"
+                    />
+                    {extra > 0 && (
+                      <span className="absolute -bottom-1 -right-1 rounded-full bg-sky-600 px-1 text-[9px] font-medium text-white">
+                        +{extra}
+                      </span>
+                    )}
+                  </div>
                 ) : item.mediaKind ? (
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-neutral-800 text-lg ring-1 ring-neutral-700">
+                  <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded bg-neutral-800 text-lg ring-1 ring-neutral-700">
                     {KIND_ICON[item.mediaKind] ?? "📎"}
+                    {extra > 0 && (
+                      <span className="absolute -bottom-1 -right-1 rounded-full bg-sky-600 px-1 text-[9px] font-medium text-white">
+                        +{extra}
+                      </span>
+                    )}
                   </div>
                 ) : null}
                 <div className="min-w-0 flex-1">
@@ -196,7 +215,9 @@ export function TelegramInbox() {
                   <p className="line-clamp-3 whitespace-pre-wrap break-words text-neutral-300">
                     {item.text || (
                       <span className="italic text-neutral-500">
-                        {item.attachment?.name ?? "(no text)"}
+                        {item.attachments.length > 1
+                          ? `${item.attachments.length} attachments`
+                          : (item.attachments[0]?.name ?? "(no text)")}
                       </span>
                     )}
                   </p>

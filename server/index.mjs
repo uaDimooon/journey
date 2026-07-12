@@ -110,6 +110,17 @@ db.exec(`CREATE TABLE IF NOT EXISTS telegram_inbox (
 db.exec(
   "CREATE INDEX IF NOT EXISTS idx_tg_inbox_user ON telegram_inbox(user_id, status);",
 );
+// A single inbox item can carry several attachments (e.g. a forwarded album).
+db.exec(`CREATE TABLE IF NOT EXISTS telegram_inbox_media (
+  id TEXT PRIMARY KEY,
+  inbox_id TEXT NOT NULL,
+  attachment_id TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);`);
+db.exec(
+  "CREATE INDEX IF NOT EXISTS idx_tg_inbox_media ON telegram_inbox_media(inbox_id);",
+);
 
 // Files are stored on disk next to the DB (outside the repo), one file per id.
 const filesDir = path.join(path.dirname(dbPath), "attachments");
@@ -460,30 +471,31 @@ app.post("/api/telegram/disconnect", requireUser, (req, res) => {
 app.get("/api/telegram/inbox", requireUser, (req, res) => {
   const rows = db
     .prepare(
-      `SELECT i.id, i.source_name, i.text, i.media_kind, i.attachment_id,
-              i.tg_date, i.created_at,
-              a.name AS attachment_name, a.type AS attachment_type,
-              a.size AS attachment_size
-         FROM telegram_inbox i
-         LEFT JOIN attachments a ON a.id = i.attachment_id
-        WHERE i.user_id = ? AND i.status = 'new'
-        ORDER BY i.created_at ASC`,
+      `SELECT id, source_name, text, media_kind, tg_date, created_at
+         FROM telegram_inbox
+        WHERE user_id = ? AND status = 'new'
+        ORDER BY created_at ASC`,
     )
     .all(req.user.id);
+  const mediaStmt = db.prepare(
+    `SELECT m.attachment_id, a.name, a.type, a.size
+       FROM telegram_inbox_media m
+       JOIN attachments a ON a.id = m.attachment_id
+      WHERE m.inbox_id = ?
+      ORDER BY m.position ASC`,
+  );
   const items = rows.map((r) => ({
     id: r.id,
     source: r.source_name,
     text: r.text,
     mediaKind: r.media_kind,
     date: r.tg_date ? r.tg_date * 1000 : r.created_at,
-    attachment: r.attachment_id
-      ? {
-          id: r.attachment_id,
-          name: r.attachment_name,
-          type: r.attachment_type,
-          size: r.attachment_size,
-        }
-      : null,
+    attachments: mediaStmt.all(r.id).map((m) => ({
+      id: m.attachment_id,
+      name: m.name,
+      type: m.type,
+      size: m.size,
+    })),
   }));
   res.json({ items });
 });
@@ -501,24 +513,26 @@ app.post("/api/telegram/inbox/:id/import", requireUser, (req, res) => {
   res.json({ ok: true });
 });
 
-// Dismiss an inbox item and clean up its (unreferenced) downloaded file.
+// Dismiss an inbox item and clean up its (unreferenced) downloaded files.
 app.post("/api/telegram/inbox/:id/dismiss", requireUser, (req, res) => {
-  const row = db
-    .prepare(
-      "SELECT attachment_id FROM telegram_inbox WHERE id = ? AND user_id = ?",
-    )
+  const item = db
+    .prepare("SELECT id FROM telegram_inbox WHERE id = ? AND user_id = ?")
     .get(req.params.id, req.user.id);
-  if (!row) return res.status(404).json({ error: "Inbox item not found." });
-  if (row.attachment_id) {
+  if (!item) return res.status(404).json({ error: "Inbox item not found." });
+  const media = db
+    .prepare("SELECT attachment_id FROM telegram_inbox_media WHERE inbox_id = ?")
+    .all(item.id);
+  for (const m of media) {
     db.prepare("DELETE FROM attachments WHERE id = ? AND user_id = ?").run(
-      row.attachment_id,
+      m.attachment_id,
       req.user.id,
     );
-    fs.rmSync(path.join(filesDir, row.attachment_id), { force: true });
+    fs.rmSync(path.join(filesDir, m.attachment_id), { force: true });
   }
+  db.prepare("DELETE FROM telegram_inbox_media WHERE inbox_id = ?").run(item.id);
   db.prepare(
-    "UPDATE telegram_inbox SET status = 'dismissed', attachment_id = NULL WHERE id = ? AND user_id = ?",
-  ).run(req.params.id, req.user.id);
+    "UPDATE telegram_inbox SET status = 'dismissed', attachment_id = NULL WHERE id = ?",
+  ).run(item.id);
   res.json({ ok: true });
 });
 
