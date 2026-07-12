@@ -71,6 +71,7 @@ function traitMediaProps(item: InboxItem): {
 export function TelegramInbox() {
   const [items, setItems] = useState<InboxItem[] | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [open, setOpen] = useState(true);
 
   const addGoal = useGraphStore((s) => s.addGoal);
   const updateNode = useGraphStore((s) => s.updateNode);
@@ -162,14 +163,21 @@ export function TelegramInbox() {
 
   return (
     <div className="rounded-lg border border-neutral-800 bg-neutral-900/60 p-3 text-xs">
-      <div className="mb-2 font-medium text-neutral-200">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-1.5 font-medium text-neutral-200"
+      >
+        <span className="text-neutral-500">{open ? "▾" : "▸"}</span>
         📥 Telegram inbox
-        <span className="ml-1.5 rounded-full bg-sky-600/80 px-1.5 py-0.5 text-[10px] text-white">
+        <span className="rounded-full bg-sky-600/80 px-1.5 py-0.5 text-[10px] text-white">
           {items.length}
         </span>
-      </div>
-      <ul className="flex flex-col gap-2">
-        {items.map((item) => {
+      </button>
+      {open && (
+        <ul className="mt-2 flex flex-col gap-2">
+          {items.map((item) => {
           const firstImage = item.attachments.find((a) =>
             a.type.startsWith("image/"),
           );
@@ -257,7 +265,8 @@ export function TelegramInbox() {
             </li>
           );
         })}
-      </ul>
+        </ul>
+      )}
     </div>
   );
 }
