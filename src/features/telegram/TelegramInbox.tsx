@@ -1,0 +1,216 @@
+/** Telegram inbox: forwarded messages/media waiting to be turned into goals or
+ *  traits. Renders nothing unless connected and there are pending items. */
+
+import { useCallback, useEffect, useState } from "react";
+import { api, type InboxItem } from "../../api/client";
+import { useGraphStore } from "../../state/graphStore";
+import { useSelectionStore } from "../../state/selectionStore";
+import type { Id } from "../../domain/types";
+
+const KIND_ICON: Record<string, string> = {
+  image: "🖼️",
+  video: "🎬",
+  audio: "🎧",
+  file: "📎",
+};
+
+function firstLine(text: string | null): string {
+  return (text ?? "").split("\n")[0]?.trim() ?? "";
+}
+
+function itemTitle(item: InboxItem): string {
+  const line = firstLine(item.text);
+  if (line) return line.slice(0, 80);
+  if (item.attachment) return item.attachment.name;
+  return item.source ? `From ${item.source}` : "Telegram item";
+}
+
+function coverOrAttachment(item: InboxItem): {
+  cover?: { id: string; name: string; type: string };
+  attachments?: { id: string; name: string; type: string }[];
+} {
+  if (!item.attachment) return {};
+  const a = {
+    id: item.attachment.id,
+    name: item.attachment.name,
+    type: item.attachment.type,
+  };
+  return item.attachment.type.startsWith("image/")
+    ? { cover: a }
+    : { attachments: [a] };
+}
+
+export function TelegramInbox() {
+  const [items, setItems] = useState<InboxItem[] | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const addGoal = useGraphStore((s) => s.addGoal);
+  const updateNode = useGraphStore((s) => s.updateNode);
+  const addTraitDetailed = useGraphStore((s) => s.addTraitDetailed);
+  const selectedId = useSelectionStore((s) => s.selectedId);
+  const selectedName = useGraphStore((s) =>
+    selectedId ? (s.graph.nodes[selectedId]?.name ?? null) : null,
+  );
+
+  const refresh = useCallback(async () => {
+    try {
+      const res = await api.telegramInbox();
+      setItems(res.items);
+    } catch {
+      setItems([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    const id = window.setInterval(refresh, 8000);
+    return () => window.clearInterval(id);
+  }, [refresh]);
+
+  if (!items || items.length === 0) return null;
+
+  const placeGoal = (): Id | null => {
+    const graph = useGraphStore.getState().graph;
+    const size =
+      Object.values(graph.nodes).find((n) => n.kind === "start")?.size ?? 28;
+    for (let i = 0; i < 60; i++) {
+      const col = i % 6;
+      const row = Math.floor(i / 6);
+      const pos = { x: 260 + col * size * 3.2, y: -120 + row * size * 3.2 };
+      const id = addGoal(pos, size);
+      if (id) return id;
+    }
+    return null;
+  };
+
+  const toGoal = async (item: InboxItem) => {
+    setBusyId(item.id);
+    try {
+      const goalId = placeGoal();
+      if (goalId) {
+        updateNode(goalId, {
+          name: itemTitle(item),
+          description: item.text ?? "",
+        });
+        if (item.attachment) {
+          addTraitDetailed(goalId, {
+            name: item.attachment.name,
+            ...coverOrAttachment(item),
+          });
+        }
+      }
+      await api.telegramInboxImport(item.id);
+      await refresh();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const toTrait = async (item: InboxItem) => {
+    if (!selectedId) return;
+    setBusyId(item.id);
+    try {
+      addTraitDetailed(selectedId, {
+        name: itemTitle(item),
+        description: item.text ?? "",
+        ...coverOrAttachment(item),
+      });
+      await api.telegramInboxImport(item.id);
+      await refresh();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const dismiss = async (item: InboxItem) => {
+    setBusyId(item.id);
+    try {
+      await api.telegramInboxDismiss(item.id);
+      await refresh();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-neutral-800 bg-neutral-900/60 p-3 text-xs">
+      <div className="mb-2 font-medium text-neutral-200">
+        📥 Telegram inbox
+        <span className="ml-1.5 rounded-full bg-sky-600/80 px-1.5 py-0.5 text-[10px] text-white">
+          {items.length}
+        </span>
+      </div>
+      <ul className="flex flex-col gap-2">
+        {items.map((item) => {
+          const isImage = item.attachment?.type.startsWith("image/");
+          const busy = busyId === item.id;
+          return (
+            <li
+              key={item.id}
+              className="rounded-md border border-neutral-800 bg-neutral-900 p-2"
+            >
+              <div className="flex gap-2">
+                {item.attachment && isImage ? (
+                  <img
+                    src={api.attachmentUrl(item.attachment.id)}
+                    alt=""
+                    className="h-12 w-12 shrink-0 rounded object-cover ring-1 ring-neutral-700"
+                  />
+                ) : item.mediaKind ? (
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-neutral-800 text-lg ring-1 ring-neutral-700">
+                    {KIND_ICON[item.mediaKind] ?? "📎"}
+                  </div>
+                ) : null}
+                <div className="min-w-0 flex-1">
+                  {item.source && (
+                    <p className="truncate text-[10px] uppercase tracking-wide text-neutral-500">
+                      {item.source}
+                    </p>
+                  )}
+                  <p className="line-clamp-3 whitespace-pre-wrap break-words text-neutral-300">
+                    {item.text || (
+                      <span className="italic text-neutral-500">
+                        {item.attachment?.name ?? "(no text)"}
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => toGoal(item)}
+                  disabled={busy}
+                  className="rounded bg-sky-600 px-2 py-1 font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+                >
+                  ＋ New goal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toTrait(item)}
+                  disabled={busy || !selectedId}
+                  title={
+                    selectedId
+                      ? `Add as a trait to ${selectedName}`
+                      : "Select a goal first"
+                  }
+                  className="rounded bg-neutral-700 px-2 py-1 text-neutral-200 hover:bg-neutral-600 disabled:opacity-40"
+                >
+                  → Trait{selectedName ? ` on ${selectedName}` : ""}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => dismiss(item)}
+                  disabled={busy}
+                  className="ml-auto text-neutral-500 hover:text-red-400 disabled:opacity-50"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}

@@ -11,6 +11,7 @@ import { OverviewList } from "./OverviewList";
 import { StatusDot } from "./StatusDot";
 import { JourneySwitcher } from "./JourneySwitcher";
 import { TelegramConnect } from "../telegram/TelegramConnect";
+import { TelegramInbox } from "../telegram/TelegramInbox";
 
 export function DetailPanel() {
   const graph = useGraphStore((s) => s.graph);
@@ -58,7 +59,8 @@ export function DetailPanel() {
 
       <JourneySwitcher />
 
-      {!node && <TelegramConnect />}
+      <TelegramConnect />
+      <TelegramInbox />
 
       {status && (
         <div className="rounded bg-amber-500/15 px-3 py-2 text-xs text-amber-300">

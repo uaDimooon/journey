@@ -33,6 +33,15 @@ export interface TelegramStatus {
   linkedAt: number | null;
 }
 
+export interface InboxItem {
+  id: string;
+  source: string | null;
+  text: string | null;
+  mediaKind: "image" | "video" | "audio" | "file" | null;
+  date: number;
+  attachment: Attachment | null;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     credentials: "include",
@@ -139,4 +148,16 @@ export const api = {
     ),
   telegramDisconnect: () =>
     request<{ ok: true }>("/api/telegram/disconnect", { method: "POST" }),
+  telegramInbox: () =>
+    request<{ items: InboxItem[] }>("/api/telegram/inbox"),
+  telegramInboxImport: (id: string) =>
+    request<{ ok: true }>(
+      `/api/telegram/inbox/${encodeURIComponent(id)}/import`,
+      { method: "POST" },
+    ),
+  telegramInboxDismiss: (id: string) =>
+    request<{ ok: true }>(
+      `/api/telegram/inbox/${encodeURIComponent(id)}/dismiss`,
+      { method: "POST" },
+    ),
 };
