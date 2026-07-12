@@ -35,6 +35,16 @@ interface GraphState {
   unlink: (from: Id, to: Id) => void;
   /** Add a trait (by name) to a node. */
   addTrait: (id: Id, name: string) => void;
+  /** Add a fully-formed trait (used for imports). Returns the new trait id, or null. */
+  addTraitDetailed: (
+    id: Id,
+    trait: {
+      name: string;
+      description?: string;
+      attachments?: TraitAttachment[];
+      cover?: TraitAttachment | null;
+    },
+  ) => Id | null;
   removeTrait: (id: Id, traitId: Id) => void;
   renameTrait: (id: Id, traitId: Id, name: string) => void;
   /** Set a trait's description. */
@@ -163,6 +173,32 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
             },
           };
         }),
+
+      addTraitDetailed: (id, t) => {
+        if (!get().graph.nodes[id]) return null;
+        const trait = {
+          id: makeId("trait"),
+          name: (t.name ?? "").trim() || "Untitled",
+          done: false,
+          description: t.description ?? "",
+          attachments: t.attachments ?? [],
+          cover: t.cover ?? null,
+        };
+        set((s) => {
+          const node = s.graph.nodes[id];
+          if (!node) return s;
+          return {
+            graph: {
+              ...s.graph,
+              nodes: {
+                ...s.graph.nodes,
+                [id]: { ...node, traits: [...node.traits, trait] },
+              },
+            },
+          };
+        });
+        return trait.id;
+      },
 
       removeTrait: (id, traitId) =>
         set((s) => {

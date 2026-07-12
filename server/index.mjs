@@ -95,6 +95,21 @@ db.exec(`CREATE TABLE IF NOT EXISTS telegram_state (
   key TEXT PRIMARY KEY,
   value TEXT
 );`);
+db.exec(`CREATE TABLE IF NOT EXISTS telegram_inbox (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  source_name TEXT,
+  text TEXT,
+  attachment_id TEXT,
+  media_kind TEXT,
+  status TEXT NOT NULL DEFAULT 'new',
+  tg_message_id INTEGER,
+  tg_date INTEGER,
+  created_at INTEGER NOT NULL
+);`);
+db.exec(
+  "CREATE INDEX IF NOT EXISTS idx_tg_inbox_user ON telegram_inbox(user_id, status);",
+);
 
 // Files are stored on disk next to the DB (outside the repo), one file per id.
 const filesDir = path.join(path.dirname(dbPath), "attachments");
@@ -178,8 +193,19 @@ const app = express();
 app.use(express.json({ limit: "4mb" }));
 app.use(cookieParser());
 
-// Telegram integration (disabled unless TELEGRAM_BOT_TOKEN is set).
-const telegram = createTelegram({ db });
+// Telegram integration (disabled unless a bot token is set). The test
+// environment uses a separate token var so it never hijacks the real bot
+// (only one process may poll a given bot at a time).
+const telegramToken = isTest
+  ? process.env.TELEGRAM_TEST_BOT_TOKEN
+  : process.env.TELEGRAM_BOT_TOKEN;
+const telegram = createTelegram({
+  db,
+  filesDir,
+  uid,
+  token: telegramToken ?? null,
+  maxFileBytes: 20 * 1024 * 1024,
+});
 
 app.post("/api/auth/signup", (req, res) => {
   const email = String(req.body?.email ?? "").trim().toLowerCase();
@@ -427,6 +453,72 @@ app.post("/api/telegram/disconnect", requireUser, (req, res) => {
   db.prepare("DELETE FROM telegram_link_codes WHERE user_id = ?").run(
     req.user.id,
   );
+  res.json({ ok: true });
+});
+
+// List the current user's unprocessed inbox items (newest last).
+app.get("/api/telegram/inbox", requireUser, (req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT i.id, i.source_name, i.text, i.media_kind, i.attachment_id,
+              i.tg_date, i.created_at,
+              a.name AS attachment_name, a.type AS attachment_type,
+              a.size AS attachment_size
+         FROM telegram_inbox i
+         LEFT JOIN attachments a ON a.id = i.attachment_id
+        WHERE i.user_id = ? AND i.status = 'new'
+        ORDER BY i.created_at ASC`,
+    )
+    .all(req.user.id);
+  const items = rows.map((r) => ({
+    id: r.id,
+    source: r.source_name,
+    text: r.text,
+    mediaKind: r.media_kind,
+    date: r.tg_date ? r.tg_date * 1000 : r.created_at,
+    attachment: r.attachment_id
+      ? {
+          id: r.attachment_id,
+          name: r.attachment_name,
+          type: r.attachment_type,
+          size: r.attachment_size,
+        }
+      : null,
+  }));
+  res.json({ items });
+});
+
+// Mark an inbox item as imported (its attachment stays, referenced by the graph).
+app.post("/api/telegram/inbox/:id/import", requireUser, (req, res) => {
+  const result = db
+    .prepare(
+      "UPDATE telegram_inbox SET status = 'imported' WHERE id = ? AND user_id = ?",
+    )
+    .run(req.params.id, req.user.id);
+  if (result.changes === 0) {
+    return res.status(404).json({ error: "Inbox item not found." });
+  }
+  res.json({ ok: true });
+});
+
+// Dismiss an inbox item and clean up its (unreferenced) downloaded file.
+app.post("/api/telegram/inbox/:id/dismiss", requireUser, (req, res) => {
+  const row = db
+    .prepare(
+      "SELECT attachment_id FROM telegram_inbox WHERE id = ? AND user_id = ?",
+    )
+    .get(req.params.id, req.user.id);
+  if (!row) return res.status(404).json({ error: "Inbox item not found." });
+  if (row.attachment_id) {
+    db.prepare("DELETE FROM attachments WHERE id = ? AND user_id = ?").run(
+      row.attachment_id,
+      req.user.id,
+    );
+    fs.rmSync(path.join(filesDir, row.attachment_id), { force: true });
+  }
+  db.prepare(
+    "UPDATE telegram_inbox SET status = 'dismissed', attachment_id = NULL WHERE id = ? AND user_id = ?",
+  ).run(req.params.id, req.user.id);
   res.json({ ok: true });
 });
 
