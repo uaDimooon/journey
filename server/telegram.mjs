@@ -135,6 +135,14 @@ export function createTelegram({
     );
   }
 
+  // The date the message was ORIGINALLY sent (unix seconds). For a forward this
+  // is the origin's date, not when it reached the bot; falls back to msg.date.
+  function originalDate(msg) {
+    return (
+      msg.forward_origin?.date ?? msg.forward_date ?? msg.date ?? null
+    );
+  }
+
   // Extract the single most relevant media file from a message, if any.
   function extractMedia(msg) {
     if (Array.isArray(msg.photo) && msg.photo.length) {
@@ -262,7 +270,7 @@ export function createTelegram({
       attachment?.id ?? null,
       media?.kind ?? null,
       msg.message_id ?? null,
-      msg.date ?? null,
+      originalDate(msg),
       Date.now(),
     );
 
