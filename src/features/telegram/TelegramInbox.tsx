@@ -25,6 +25,30 @@ function itemTitle(item: InboxItem): string {
   return item.source ? `From ${item.source}` : "Telegram item";
 }
 
+function formatDate(ms: number): string {
+  return new Date(ms).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+// A "— source · date" line capturing where/when the item came from.
+function provenance(item: InboxItem): string {
+  const parts = [item.source, item.date ? formatDate(item.date) : null].filter(
+    Boolean,
+  );
+  return parts.length ? `— ${parts.join(" · ")}` : "";
+}
+
+// The item's text with the provenance line appended, for goal/trait descriptions.
+function descWithProvenance(item: InboxItem): string {
+  const p = provenance(item);
+  const body = item.text ?? "";
+  if (!p) return body;
+  return body ? `${body}\n\n${p}` : p;
+}
+
 function coverOrAttachment(item: InboxItem): {
   cover?: { id: string; name: string; type: string };
   attachments?: { id: string; name: string; type: string }[];
@@ -90,7 +114,7 @@ export function TelegramInbox() {
       if (goalId) {
         updateNode(goalId, {
           name: itemTitle(item),
-          description: item.text ?? "",
+          description: descWithProvenance(item),
         });
         if (item.attachment) {
           addTraitDetailed(goalId, {
@@ -112,7 +136,7 @@ export function TelegramInbox() {
     try {
       addTraitDetailed(selectedId, {
         name: itemTitle(item),
-        description: item.text ?? "",
+        description: descWithProvenance(item),
         ...coverOrAttachment(item),
       });
       await api.telegramInboxImport(item.id);
@@ -162,9 +186,11 @@ export function TelegramInbox() {
                   </div>
                 ) : null}
                 <div className="min-w-0 flex-1">
-                  {item.source && (
+                  {(item.source || item.date) && (
                     <p className="truncate text-[10px] uppercase tracking-wide text-neutral-500">
                       {item.source}
+                      {item.source && item.date ? " · " : ""}
+                      {item.date ? formatDate(item.date) : ""}
                     </p>
                   )}
                   <p className="line-clamp-3 whitespace-pre-wrap break-words text-neutral-300">
