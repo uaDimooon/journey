@@ -234,45 +234,144 @@ export function createTelegram({
     }
   }
 
-  // Save an incoming (non-command) message to the linked user's inbox.
-  async function saveToInbox(msg) {
-    const userId = userIdForTelegram(msg.from.id);
-    if (!userId) {
-      await sendMessage(
-        msg.chat.id,
-        "Connect your account first: open Journey → Connect Telegram.",
-      );
-      return;
-    }
-    const text = (msg.text ?? msg.caption ?? "").trim();
-    const media = extractMedia(msg);
-    if (!text && !media) return; // nothing importable (e.g. a sticker)
-
-    let attachment = null;
-    let oversize = false;
-    if (media) {
-      if (media.fileSize && media.fileSize > maxFileBytes) {
-        oversize = true;
-      } else {
-        attachment = await downloadAsAttachment(userId, media);
-      }
-    }
-
+  // Insert one inbox item plus a row per attachment. Returns the inbox id.
+  function insertInboxItem({
+    userId,
+    source,
+    text,
+    date,
+    mediaKind,
+    attachments,
+    tgMessageId,
+  }) {
+    const inboxId = uid();
     db.prepare(
       `INSERT INTO telegram_inbox
          (id, user_id, source_name, text, attachment_id, media_kind, status, tg_message_id, tg_date, created_at)
        VALUES (?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)`,
     ).run(
-      uid(),
+      inboxId,
       userId,
-      sourceName(msg),
+      source,
       text || null,
-      attachment?.id ?? null,
-      media?.kind ?? null,
-      msg.message_id ?? null,
-      originalDate(msg),
+      attachments[0]?.id ?? null,
+      mediaKind ?? null,
+      tgMessageId ?? null,
+      date,
       Date.now(),
     );
+    attachments.forEach((a, i) => {
+      db.prepare(
+        "INSERT INTO telegram_inbox_media (id, inbox_id, attachment_id, position, created_at) VALUES (?, ?, ?, ?, ?)",
+      ).run(uid(), inboxId, a.id, i, Date.now());
+    });
+    return inboxId;
+  }
+
+  // Download every media file on a message (usually 0 or 1). Returns
+  // { attachments, oversize }.
+  async function collectMedia(userId, msg) {
+    const media = extractMedia(msg);
+    if (!media) return { attachments: [], oversize: false };
+    if (media.fileSize && media.fileSize > maxFileBytes) {
+      return { attachments: [], oversize: true };
+    }
+    const a = await downloadAsAttachment(userId, media);
+    return a
+      ? { attachments: [{ ...a, kind: media.kind }], oversize: false }
+      : { attachments: [], oversize: false };
+  }
+
+  // Nudge an unlinked user to connect — at most once every few seconds/chat.
+  const lastNudge = new Map();
+  async function nudgeConnect(chatId) {
+    if (Date.now() - (lastNudge.get(chatId) ?? 0) < 5000) return;
+    lastNudge.set(chatId, Date.now());
+    await sendMessage(
+      chatId,
+      "Connect your account first: open Journey → Connect Telegram.",
+    );
+  }
+
+  // Buffer album (media_group_id) messages briefly, then flush them as one item.
+  const groupBuffers = new Map();
+  const GROUP_WINDOW_MS = 1500;
+
+  function bufferGroupMessage(userId, msg) {
+    const key = `${userId}:${msg.media_group_id}`;
+    let entry = groupBuffers.get(key);
+    if (!entry) {
+      entry = { userId, chatId: msg.chat.id, messages: [], timer: null };
+      groupBuffers.set(key, entry);
+    }
+    entry.messages.push(msg);
+    if (entry.timer) clearTimeout(entry.timer);
+    entry.timer = setTimeout(() => {
+      groupBuffers.delete(key);
+      flushGroup(entry).catch((err) =>
+        console.warn("[telegram] group flush error:", err.message),
+      );
+    }, GROUP_WINDOW_MS);
+  }
+
+  async function flushGroup(entry) {
+    const { userId, messages } = entry;
+    const first = messages[0];
+    const withText = messages.find((m) => (m.caption ?? m.text ?? "").trim());
+    const text = (withText?.caption ?? withText?.text ?? "").trim();
+    const attachments = [];
+    let oversize = false;
+    for (const m of messages) {
+      const { attachments: got, oversize: big } = await collectMedia(userId, m);
+      attachments.push(...got);
+      if (big) oversize = true;
+    }
+    const mediaKind = attachments.some((a) => a.kind === "image")
+      ? "image"
+      : (attachments[0]?.kind ?? null);
+    insertInboxItem({
+      userId,
+      source: sourceName(first),
+      text,
+      date: originalDate(first),
+      mediaKind,
+      attachments,
+      tgMessageId: first.message_id,
+    });
+    const n = attachments.length || 1;
+    await sendMessage(
+      entry.chatId,
+      oversize
+        ? `⚠️ Saved a group to your Journey inbox (some files were too large — max 20 MB).`
+        : `✅ Saved ${n} item${n === 1 ? "" : "s"} to your Journey inbox.`,
+    );
+  }
+
+  // Save an incoming (non-command) message to the linked user's inbox.
+  async function saveToInbox(msg) {
+    const userId = userIdForTelegram(msg.from.id);
+    if (!userId) {
+      await nudgeConnect(msg.chat.id);
+      return;
+    }
+    // Albums arrive as several messages sharing a media_group_id — bundle them.
+    if (msg.media_group_id) {
+      bufferGroupMessage(userId, msg);
+      return;
+    }
+    const text = (msg.text ?? msg.caption ?? "").trim();
+    const { attachments, oversize } = await collectMedia(userId, msg);
+    if (!text && attachments.length === 0 && !oversize) return; // e.g. a sticker
+
+    insertInboxItem({
+      userId,
+      source: sourceName(msg),
+      text,
+      date: originalDate(msg),
+      mediaKind: attachments[0]?.kind ?? null,
+      attachments,
+      tgMessageId: msg.message_id,
+    });
 
     await sendMessage(
       msg.chat.id,

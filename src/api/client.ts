@@ -39,7 +39,7 @@ export interface InboxItem {
   text: string | null;
   mediaKind: "image" | "video" | "audio" | "file" | null;
   date: number;
-  attachment: Attachment | null;
+  attachments: Attachment[];
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
