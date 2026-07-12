@@ -13,6 +13,14 @@ import {
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
+import { createTelegram } from "./telegram.mjs";
+
+// Load environment variables from a local .env file if present (gitignored).
+try {
+  process.loadEnvFile();
+} catch {
+  // No .env file — fall back to the ambient environment.
+}
 
 // Environment: "development" (default), "test", or "production".
 // JOURNEY_ENV takes precedence, then NODE_ENV.
@@ -67,6 +75,26 @@ db.exec(`CREATE TABLE IF NOT EXISTS attachments (
   created_at INTEGER NOT NULL
 );`);
 db.exec("CREATE INDEX IF NOT EXISTS idx_attachments_user ON attachments(user_id);");
+
+// Telegram integration: link a Journey account to a Telegram user, plus the
+// short-lived codes used to establish that link and a small key/value store
+// for bot state (e.g. the getUpdates offset).
+db.exec(`CREATE TABLE IF NOT EXISTS telegram_links (
+  user_id TEXT PRIMARY KEY,
+  telegram_user_id TEXT UNIQUE NOT NULL,
+  telegram_username TEXT,
+  telegram_name TEXT,
+  linked_at INTEGER NOT NULL
+);`);
+db.exec(`CREATE TABLE IF NOT EXISTS telegram_link_codes (
+  code TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);`);
+db.exec(`CREATE TABLE IF NOT EXISTS telegram_state (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);`);
 
 // Files are stored on disk next to the DB (outside the repo), one file per id.
 const filesDir = path.join(path.dirname(dbPath), "attachments");
@@ -149,6 +177,9 @@ for (const row of db.prepare("SELECT user_id, data, updated_at FROM graphs").all
 const app = express();
 app.use(express.json({ limit: "4mb" }));
 app.use(cookieParser());
+
+// Telegram integration (disabled unless TELEGRAM_BOT_TOKEN is set).
+const telegram = createTelegram({ db });
 
 app.post("/api/auth/signup", (req, res) => {
   const email = String(req.body?.email ?? "").trim().toLowerCase();
@@ -349,6 +380,56 @@ app.delete("/api/attachments/:id", requireUser, (req, res) => {
   res.json({ ok: true });
 });
 
+// --- Telegram integration ---------------------------------------------------
+
+// Connection status for the current user.
+app.get("/api/telegram/status", requireUser, (req, res) => {
+  const link = db
+    .prepare(
+      "SELECT telegram_username, telegram_name, linked_at FROM telegram_links WHERE user_id = ?",
+    )
+    .get(req.user.id);
+  res.json({
+    enabled: telegram.enabled,
+    botUsername: telegram.getBotUsername(),
+    connected: !!link,
+    username: link?.telegram_username ?? null,
+    name: link?.telegram_name ?? null,
+    linkedAt: link?.linked_at ?? null,
+  });
+});
+
+// Generate a one-time link code and the deep link to press Start in Telegram.
+app.post("/api/telegram/link-code", requireUser, (req, res) => {
+  if (!telegram.enabled) {
+    return res
+      .status(503)
+      .json({ error: "Telegram is not configured on the server." });
+  }
+  db.prepare("DELETE FROM telegram_link_codes WHERE user_id = ?").run(
+    req.user.id,
+  );
+  const code = randomBytes(8).toString("hex");
+  db.prepare(
+    "INSERT INTO telegram_link_codes (code, user_id, created_at) VALUES (?, ?, ?)",
+  ).run(code, req.user.id, Date.now());
+  const botUsername = telegram.getBotUsername();
+  res.json({
+    code,
+    botUsername,
+    deepLink: botUsername ? `https://t.me/${botUsername}?start=${code}` : null,
+  });
+});
+
+// Unlink the current user's Telegram account.
+app.post("/api/telegram/disconnect", requireUser, (req, res) => {
+  db.prepare("DELETE FROM telegram_links WHERE user_id = ?").run(req.user.id);
+  db.prepare("DELETE FROM telegram_link_codes WHERE user_id = ?").run(
+    req.user.id,
+  );
+  res.json({ ok: true });
+});
+
 const PORT = process.env.PORT
   ? Number(process.env.PORT)
   : isTest
@@ -356,4 +437,5 @@ const PORT = process.env.PORT
     : 8787;
 app.listen(PORT, () => {
   console.log(`Journey API listening on http://localhost:${PORT}`);
+  telegram.start();
 });

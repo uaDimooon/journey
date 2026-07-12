@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# Secrets / environment
+.env
+.env.*
+!.env.example
+
 # SQLite database (server)
 server/*.db
 server/*.db-*

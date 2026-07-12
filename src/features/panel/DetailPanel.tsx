@@ -10,6 +10,7 @@ import { TraitEditor } from "../traits/TraitEditor";
 import { OverviewList } from "./OverviewList";
 import { StatusDot } from "./StatusDot";
 import { JourneySwitcher } from "./JourneySwitcher";
+import { TelegramConnect } from "../telegram/TelegramConnect";
 
 export function DetailPanel() {
   const graph = useGraphStore((s) => s.graph);
@@ -56,6 +57,8 @@ export function DetailPanel() {
       </header>
 
       <JourneySwitcher />
+
+      {!node && <TelegramConnect />}
 
       {status && (
         <div className="rounded bg-amber-500/15 px-3 py-2 text-xs text-amber-300">
