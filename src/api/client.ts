@@ -24,6 +24,15 @@ export interface Attachment {
 export const MAX_ATTACHMENT_MB = 25;
 export const MAX_ATTACHMENT_BYTES = MAX_ATTACHMENT_MB * 1024 * 1024;
 
+export interface TelegramStatus {
+  enabled: boolean;
+  botUsername: string | null;
+  connected: boolean;
+  username: string | null;
+  name: string | null;
+  linkedAt: number | null;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     credentials: "include",
@@ -119,4 +128,15 @@ export const api = {
     request<{ ok: true }>(`/api/attachments/${encodeURIComponent(id)}`, {
       method: "DELETE",
     }),
+
+  // --- Telegram integration ---
+  telegramStatus: () =>
+    request<TelegramStatus>("/api/telegram/status"),
+  telegramLinkCode: () =>
+    request<{ code: string; botUsername: string | null; deepLink: string | null }>(
+      "/api/telegram/link-code",
+      { method: "POST" },
+    ),
+  telegramDisconnect: () =>
+    request<{ ok: true }>("/api/telegram/disconnect", { method: "POST" }),
 };
