@@ -6,7 +6,18 @@ import { useGraphStore } from "../../state/graphStore";
 import { api, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_MB } from "../../api/client";
 import { linkify } from "../../lib/linkify";
 import { PdfViewer } from "./PdfViewer";
+import { InstagramEmbed } from "../instagram/InstagramEmbed";
 import type { Id, Trait } from "../../domain/types";
+
+// Find the first Instagram reel/post link in text and normalize it.
+function extractInstagramUrl(text: string): string | null {
+  const m = (text || "").match(
+    /https?:\/\/(?:www\.)?instagram\.com\/(reels?|p|tv)\/([A-Za-z0-9_-]+)/i,
+  );
+  if (!m) return null;
+  const path = m[1].toLowerCase() === "p" ? "p" : "reel";
+  return `https://www.instagram.com/${path}/${m[2]}/`;
+}
 
 export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] }) {
   const [value, setValue] = useState("");
@@ -24,6 +35,7 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
     items: { id: string; name: string; type: string }[];
     index: number;
   } | null>(null);
+  const [igPreview, setIgPreview] = useState<string | null>(null);
 
   const previewItem = preview ? preview.items[preview.index] : null;
   const stepPreview = (delta: number) =>
@@ -223,6 +235,7 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
         )}
         {traits.map((t, index) => {
           const isOpen = openId === t.id;
+          const igUrl = extractInstagramUrl(t.description);
           const controlButtons = (
             <>
               <button
@@ -420,6 +433,16 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
                     rows={3}
                     className="w-full resize-none rounded bg-neutral-900 px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-sky-500"
                   />
+
+                  {igUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setIgPreview(igUrl)}
+                      className="inline-flex w-fit items-center gap-1 rounded bg-neutral-800 px-2 py-1 text-xs text-pink-300 hover:bg-neutral-700"
+                    >
+                      ▶ Preview Instagram
+                    </button>
+                  )}
 
                   {/* Cover image */}
                   <div className="flex items-center gap-2">
@@ -689,6 +712,37 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
               ›
             </button>
           )}
+        </div>
+      )}
+
+      {igPreview && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-6"
+          onClick={() => setIgPreview(null)}
+        >
+          <div
+            className="flex max-h-[86vh] w-[380px] max-w-full flex-col gap-3 overflow-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <InstagramEmbed url={igPreview} />
+            <div className="flex items-center justify-end gap-3">
+              <a
+                href={igPreview}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded bg-pink-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-pink-500"
+              >
+                Open in Instagram
+              </a>
+              <button
+                type="button"
+                onClick={() => setIgPreview(null)}
+                className="rounded bg-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:bg-neutral-600"
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
