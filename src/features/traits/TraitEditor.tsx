@@ -188,6 +188,28 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
     api.deleteAttachment(coverId).catch(() => {});
   };
 
+  // Reuse an already-attached image as the cover (no re-upload). Cleans up the
+  // previous cover only if it was a standalone cover (not one of the attachments).
+  const setCoverFromAttachment = (
+    traitId: Id,
+    att: { id: string; name: string; type: string },
+    previousCoverId: Id | undefined,
+    attachmentIds: Id[],
+  ) => {
+    setTraitCover(nodeId, traitId, {
+      id: att.id,
+      name: att.name,
+      type: att.type,
+    });
+    if (
+      previousCoverId &&
+      previousCoverId !== att.id &&
+      !attachmentIds.includes(previousCoverId)
+    ) {
+      api.deleteAttachment(previousCoverId).catch(() => {});
+    }
+  };
+
   // Paste an image from the clipboard onto a focused trait to set/replace its
   // cover. (The trait's header receives the paste once it has focus.)
   const onPasteCover = async (
@@ -275,7 +297,10 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
               className={`rounded ${dragIndex === index ? "opacity-50" : ""}`}
             >
               {editingId === t.id ? (
-                <div className="flex items-center gap-1.5 rounded px-1 py-0.5 text-xs">
+                <div
+                  className="flex items-center gap-1.5 rounded px-1 py-0.5 text-xs"
+                  onPaste={(e) => onPasteCover(t.id, t.cover?.id, e)}
+                >
                   <span className="select-none text-neutral-600">⠿</span>
                   <input
                     type="checkbox"
@@ -422,51 +447,99 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
                   />
 
                   {/* Cover image */}
-                  <div className="flex items-center gap-2">
-                    {t.cover ? (
-                      <>
-                        <img
-                          src={api.attachmentUrl(t.cover.id)}
-                          alt=""
-                          className="h-10 w-10 shrink-0 rounded object-cover ring-1 ring-neutral-700"
-                        />
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      {t.cover ? (
+                        <>
+                          <img
+                            src={api.attachmentUrl(t.cover.id)}
+                            alt=""
+                            className="h-10 w-10 shrink-0 rounded object-cover ring-1 ring-neutral-700"
+                          />
+                          <label className="inline-flex cursor-pointer items-center gap-1 rounded bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700">
+                            {coverBusyId === t.id ? "Updating…" : "Replace cover"}
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                if (f) setCoverFromFile(t.id, f, t.cover?.id);
+                                e.target.value = "";
+                              }}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => onRemoveCover(t.id, t.cover!.id)}
+                            className="text-xs text-neutral-400 hover:text-red-400"
+                          >
+                            Remove cover
+                          </button>
+                        </>
+                      ) : (
                         <label className="inline-flex cursor-pointer items-center gap-1 rounded bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700">
-                          {coverBusyId === t.id ? "Updating…" : "Replace cover"}
+                          {coverBusyId === t.id
+                            ? "Uploading…"
+                            : "🖼️ Set cover image"}
                           <input
                             type="file"
                             accept="image/*"
                             className="hidden"
                             onChange={(e) => {
                               const f = e.target.files?.[0];
-                              if (f) setCoverFromFile(t.id, f, t.cover?.id);
+                              if (f) setCoverFromFile(t.id, f);
                               e.target.value = "";
                             }}
                           />
                         </label>
-                        <button
-                          type="button"
-                          onClick={() => onRemoveCover(t.id, t.cover!.id)}
-                          className="text-xs text-neutral-400 hover:text-red-400"
-                        >
-                          Remove cover
-                        </button>
-                      </>
-                    ) : (
-                      <label className="inline-flex cursor-pointer items-center gap-1 rounded bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700">
-                        {coverBusyId === t.id
-                          ? "Uploading…"
-                          : "🖼️ Set cover image"}
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => {
-                            const f = e.target.files?.[0];
-                            if (f) setCoverFromFile(t.id, f);
-                            e.target.value = "";
-                          }}
-                        />
-                      </label>
+                      )}
+                    </div>
+
+                    {/* Reuse one of the trait's attached images as the cover */}
+                    {t.attachments.some((a) =>
+                      a.type.startsWith("image/"),
+                    ) && (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[11px] text-neutral-500">
+                          Use attached:
+                        </span>
+                        {t.attachments
+                          .filter((a) => a.type.startsWith("image/"))
+                          .map((a) => {
+                            const isCover = t.cover?.id === a.id;
+                            return (
+                              <button
+                                key={a.id}
+                                type="button"
+                                onClick={() =>
+                                  setCoverFromAttachment(
+                                    t.id,
+                                    a,
+                                    t.cover?.id,
+                                    t.attachments.map((x) => x.id),
+                                  )
+                                }
+                                title={
+                                  isCover
+                                    ? "Current cover"
+                                    : `Use ${a.name} as cover`
+                                }
+                                className={`h-9 w-9 overflow-hidden rounded ring-1 ${
+                                  isCover
+                                    ? "ring-2 ring-sky-400"
+                                    : "ring-neutral-700 hover:ring-sky-500"
+                                }`}
+                              >
+                                <img
+                                  src={api.attachmentUrl(a.id)}
+                                  alt={a.name}
+                                  className="h-full w-full object-cover"
+                                />
+                              </button>
+                            );
+                          })}
+                      </div>
                     )}
                   </div>
 
