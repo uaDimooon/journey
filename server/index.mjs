@@ -121,6 +121,21 @@ db.exec(`CREATE TABLE IF NOT EXISTS telegram_inbox_media (
 db.exec(
   "CREATE INDEX IF NOT EXISTS idx_tg_inbox_media ON telegram_inbox_media(inbox_id);",
 );
+// Instagram inbox: reel/post links shared via the bot (its own mailbox).
+db.exec(`CREATE TABLE IF NOT EXISTS instagram_inbox (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  url TEXT NOT NULL,
+  shortcode TEXT,
+  media_type TEXT,
+  text TEXT,
+  status TEXT NOT NULL DEFAULT 'new',
+  tg_date INTEGER,
+  created_at INTEGER NOT NULL
+);`);
+db.exec(
+  "CREATE INDEX IF NOT EXISTS idx_ig_inbox_user ON instagram_inbox(user_id, status);",
+);
 
 // Files are stored on disk next to the DB (outside the repo), one file per id.
 const filesDir = path.join(path.dirname(dbPath), "attachments");
@@ -533,6 +548,52 @@ app.post("/api/telegram/inbox/:id/dismiss", requireUser, (req, res) => {
   db.prepare(
     "UPDATE telegram_inbox SET status = 'dismissed', attachment_id = NULL WHERE id = ?",
   ).run(item.id);
+  res.json({ ok: true });
+});
+
+// --- Instagram inbox --------------------------------------------------------
+
+app.get("/api/instagram/inbox", requireUser, (req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT id, url, shortcode, media_type, text, tg_date, created_at
+         FROM instagram_inbox
+        WHERE user_id = ? AND status = 'new'
+        ORDER BY created_at ASC`,
+    )
+    .all(req.user.id);
+  const items = rows.map((r) => ({
+    id: r.id,
+    url: r.url,
+    shortcode: r.shortcode,
+    mediaType: r.media_type,
+    text: r.text,
+    date: r.tg_date ? r.tg_date * 1000 : r.created_at,
+  }));
+  res.json({ items });
+});
+
+app.post("/api/instagram/inbox/:id/import", requireUser, (req, res) => {
+  const result = db
+    .prepare(
+      "UPDATE instagram_inbox SET status = 'imported' WHERE id = ? AND user_id = ?",
+    )
+    .run(req.params.id, req.user.id);
+  if (result.changes === 0) {
+    return res.status(404).json({ error: "Inbox item not found." });
+  }
+  res.json({ ok: true });
+});
+
+app.post("/api/instagram/inbox/:id/dismiss", requireUser, (req, res) => {
+  const result = db
+    .prepare(
+      "UPDATE instagram_inbox SET status = 'dismissed' WHERE id = ? AND user_id = ?",
+    )
+    .run(req.params.id, req.user.id);
+  if (result.changes === 0) {
+    return res.status(404).json({ error: "Inbox item not found." });
+  }
   res.json({ ok: true });
 });
 

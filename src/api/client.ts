@@ -42,6 +42,15 @@ export interface InboxItem {
   attachments: Attachment[];
 }
 
+export interface InstagramItem {
+  id: string;
+  url: string;
+  shortcode: string | null;
+  mediaType: "reel" | "post" | null;
+  text: string | null;
+  date: number;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     credentials: "include",
@@ -158,6 +167,20 @@ export const api = {
   telegramInboxDismiss: (id: string) =>
     request<{ ok: true }>(
       `/api/telegram/inbox/${encodeURIComponent(id)}/dismiss`,
+      { method: "POST" },
+    ),
+
+  // --- Instagram inbox ---
+  instagramInbox: () =>
+    request<{ items: InstagramItem[] }>("/api/instagram/inbox"),
+  instagramInboxImport: (id: string) =>
+    request<{ ok: true }>(
+      `/api/instagram/inbox/${encodeURIComponent(id)}/import`,
+      { method: "POST" },
+    ),
+  instagramInboxDismiss: (id: string) =>
+    request<{ ok: true }>(
+      `/api/instagram/inbox/${encodeURIComponent(id)}/dismiss`,
       { method: "POST" },
     ),
 };

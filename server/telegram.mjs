@@ -347,11 +347,55 @@ export function createTelegram({
     );
   }
 
+  // Detect an Instagram reel/post link in text and normalize it.
+  function parseInstagramLink(text) {
+    const m = String(text || "").match(
+      /https?:\/\/(?:www\.)?instagram\.com\/(reels?|p|tv)\/([A-Za-z0-9_-]+)/i,
+    );
+    if (!m) return null;
+    const type = m[1].toLowerCase() === "p" ? "post" : "reel";
+    const path = type === "post" ? "p" : "reel";
+    return {
+      url: `https://www.instagram.com/${path}/${m[2]}/`,
+      shortcode: m[2],
+      type,
+    };
+  }
+
+  // Save a shared Instagram link to its own inbox (kept separate from Telegram).
+  function saveInstagramItem(userId, msg, ig) {
+    const raw = (msg.text ?? msg.caption ?? "").trim();
+    const note = raw
+      .replace(/https?:\/\/(?:www\.)?instagram\.com\/\S+/gi, "")
+      .trim();
+    db.prepare(
+      `INSERT INTO instagram_inbox
+         (id, user_id, url, shortcode, media_type, text, status, tg_date, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'new', ?, ?)`,
+    ).run(
+      uid(),
+      userId,
+      ig.url,
+      ig.shortcode,
+      ig.type,
+      note || null,
+      originalDate(msg),
+      Date.now(),
+    );
+  }
+
   // Save an incoming (non-command) message to the linked user's inbox.
   async function saveToInbox(msg) {
     const userId = userIdForTelegram(msg.from.id);
     if (!userId) {
       await nudgeConnect(msg.chat.id);
+      return;
+    }
+    // Instagram reel/post links go to the dedicated Instagram inbox.
+    const ig = parseInstagramLink(msg.text ?? msg.caption ?? "");
+    if (ig) {
+      saveInstagramItem(userId, msg, ig);
+      await sendMessage(msg.chat.id, "✅ Saved to your Instagram inbox.");
       return;
     }
     // Albums arrive as several messages sharing a media_group_id — bundle them.

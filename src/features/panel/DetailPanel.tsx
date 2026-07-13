@@ -12,6 +12,7 @@ import { StatusDot } from "./StatusDot";
 import { JourneySwitcher } from "./JourneySwitcher";
 import { TelegramConnect } from "../telegram/TelegramConnect";
 import { TelegramInbox } from "../telegram/TelegramInbox";
+import { InstagramInbox } from "../instagram/InstagramInbox";
 
 export function DetailPanel() {
   const graph = useGraphStore((s) => s.graph);
@@ -61,6 +62,7 @@ export function DetailPanel() {
 
       <TelegramConnect />
       <TelegramInbox />
+      <InstagramInbox />
 
       {status && (
         <div className="rounded bg-amber-500/15 px-3 py-2 text-xs text-amber-300">
