@@ -310,38 +310,40 @@ export function createTelegram({
     );
   }
 
-  // Buffer album (media_group_id) messages briefly, then flush them as one item.
-  const groupBuffers = new Map();
-  const GROUP_WINDOW_MS = 2500;
+  // Bundle everything a user forwards in one burst into a single inbox item.
+  // A sliding window resets on each message; 1.5s after the last one it flushes.
+  const mediaBursts = new Map();
+  const BURST_WINDOW_MS = 1500;
 
-  function bufferGroupMessage(userId, msg) {
-    const key = `${userId}:${msg.media_group_id}`;
-    let entry = groupBuffers.get(key);
+  function bufferBurst(userId, msg) {
+    let entry = mediaBursts.get(userId);
     if (!entry) {
-      entry = {
-        userId,
-        chatId: msg.chat.id,
-        mediaGroupId: msg.media_group_id,
-        messages: [],
-        timer: null,
-      };
-      groupBuffers.set(key, entry);
+      entry = { userId, chatId: msg.chat.id, messages: [], timer: null };
+      mediaBursts.set(userId, entry);
     }
     entry.messages.push(msg);
     if (entry.timer) clearTimeout(entry.timer);
     entry.timer = setTimeout(() => {
-      groupBuffers.delete(key);
-      flushGroup(entry).catch((err) =>
-        console.warn("[telegram] group flush error:", err.message),
+      mediaBursts.delete(userId);
+      flushBurst(entry).catch((err) =>
+        console.warn("[telegram] burst flush error:", err.message),
       );
-    }, GROUP_WINDOW_MS);
+    }, BURST_WINDOW_MS);
   }
 
-  async function flushGroup(entry) {
-    const { userId, messages, mediaGroupId } = entry;
+  async function flushBurst(entry) {
+    const { userId, messages } = entry;
     const first = messages[0];
-    const withText = messages.find((m) => (m.caption ?? m.text ?? "").trim());
-    const text = (withText?.caption ?? withText?.text ?? "").trim();
+
+    // Collect distinct notes/captions across the burst.
+    const captions = [];
+    for (const m of messages) {
+      const c = (m.caption ?? m.text ?? "").trim();
+      if (c && !captions.includes(c)) captions.push(c);
+    }
+    const text = captions.join("\n");
+
+    // Download every media file across the burst.
     const attachments = [];
     let oversize = false;
     for (const m of messages) {
@@ -353,8 +355,12 @@ export function createTelegram({
       ? "image"
       : (attachments[0]?.kind ?? null);
 
-    // If an item for this album already exists (its messages arrived spread
-    // across the flush window), append to it instead of creating a duplicate.
+    // If the whole burst is one album, tag the item so any of its photos that
+    // arrive outside the window still merge into the same item.
+    const groupIds = new Set(
+      messages.map((m) => m.media_group_id).filter(Boolean),
+    );
+    const mediaGroupId = groupIds.size === 1 ? [...groupIds][0] : null;
     const existing = mediaGroupId
       ? db
           .prepare(
@@ -371,7 +377,17 @@ export function createTelegram({
           existing.id,
         );
       }
-      return; // one confirmation per album is enough
+      return; // one confirmation per bundle is enough
+    }
+
+    if (attachments.length === 0 && !text) {
+      if (oversize) {
+        await sendMessage(
+          entry.chatId,
+          "⚠️ Couldn't import — the file was too large (max 20 MB).",
+        );
+      }
+      return;
     }
 
     insertInboxItem({
@@ -384,13 +400,13 @@ export function createTelegram({
       tgMessageId: first.message_id,
       mediaGroupId,
     });
-    const n = attachments.length || 1;
-    await sendMessage(
-      entry.chatId,
-      oversize
-        ? `⚠️ Saved a group to your Journey inbox (some files were too large — max 20 MB).`
-        : `✅ Saved ${n} item${n === 1 ? "" : "s"} to your Journey inbox.`,
-    );
+
+    const n = attachments.length;
+    let reply;
+    if (n > 1) reply = `✅ Bundled ${n} items into one Journey inbox item.`;
+    else reply = "✅ Saved to your Journey inbox.";
+    if (oversize) reply += " (Some files were too large — max 20 MB.)";
+    await sendMessage(entry.chatId, reply);
   }
 
   // Detect an Instagram reel/post link in text and normalize it.
@@ -430,7 +446,8 @@ export function createTelegram({
     );
   }
 
-  // Save an incoming (non-command) message to the linked user's inbox.
+  // Save an incoming (non-command) message to the linked user's inbox. Media and
+  // text are bundled per burst; Instagram links go to their own inbox.
   async function saveToInbox(msg) {
     const userId = userIdForTelegram(msg.from.id);
     if (!userId) {
@@ -444,31 +461,11 @@ export function createTelegram({
       await sendMessage(msg.chat.id, "✅ Saved to your Instagram inbox.");
       return;
     }
-    // Albums arrive as several messages sharing a media_group_id — bundle them.
-    if (msg.media_group_id) {
-      bufferGroupMessage(userId, msg);
-      return;
-    }
-    const text = (msg.text ?? msg.caption ?? "").trim();
-    const { attachments, oversize } = await collectMedia(userId, msg);
-    if (!text && attachments.length === 0 && !oversize) return; // e.g. a sticker
-
-    insertInboxItem({
-      userId,
-      source: sourceName(msg),
-      text,
-      date: originalDate(msg),
-      mediaKind: attachments[0]?.kind ?? null,
-      attachments,
-      tgMessageId: msg.message_id,
-    });
-
-    await sendMessage(
-      msg.chat.id,
-      oversize
-        ? "⚠️ Saved to your Journey inbox (the file was too large to import — max 20 MB)."
-        : "✅ Saved to your Journey inbox.",
-    );
+    // Nothing importable (e.g. a sticker with no text)?
+    const hasText = Boolean((msg.text ?? msg.caption ?? "").trim());
+    if (!hasText && !extractMedia(msg)) return;
+    // Everything else is bundled by the sliding burst window.
+    bufferBurst(userId, msg);
   }
 
   // Process a single Telegram update. Exposed for tests.
