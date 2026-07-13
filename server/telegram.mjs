@@ -162,6 +162,8 @@ export function createTelegram({
         fileName: msg.video.file_name ?? "video.mp4",
         mimeType: msg.video.mime_type ?? "video/mp4",
         fileSize: msg.video.file_size ?? null,
+        thumbFileId:
+          msg.video.thumbnail?.file_id ?? msg.video.thumb?.file_id ?? null,
       };
     }
     if (msg.animation) {
@@ -171,6 +173,10 @@ export function createTelegram({
         fileName: msg.animation.file_name ?? "animation.mp4",
         mimeType: msg.animation.mime_type ?? "video/mp4",
         fileSize: msg.animation.file_size ?? null,
+        thumbFileId:
+          msg.animation.thumbnail?.file_id ??
+          msg.animation.thumb?.file_id ??
+          null,
       };
     }
     if (msg.document) {
@@ -181,6 +187,10 @@ export function createTelegram({
         fileName: msg.document.file_name ?? "file",
         mimeType: mime,
         fileSize: msg.document.file_size ?? null,
+        thumbFileId:
+          msg.document.thumbnail?.file_id ??
+          msg.document.thumb?.file_id ??
+          null,
       };
     }
     if (msg.audio) {
@@ -204,14 +214,12 @@ export function createTelegram({
     return null;
   }
 
-  // Download a Telegram file and store it as an attachment. Returns the
-  // attachment row, or null if it could not be downloaded.
-  async function downloadAsAttachment(userId, media) {
-    if (!filesDir || !uid) return null;
-    if (media.fileSize && media.fileSize > maxFileBytes) return null;
+  // Download a Telegram file (by file_id) and store it as an attachment.
+  async function downloadFile(userId, fileId, name, type) {
+    if (!filesDir || !uid || !fileId) return null;
     let file;
     try {
-      file = await callApi("getFile", { file_id: media.fileId });
+      file = await callApi("getFile", { file_id: fileId });
     } catch (err) {
       console.warn("[telegram] getFile failed:", err.message);
       return null;
@@ -226,12 +234,37 @@ export function createTelegram({
       fs.writeFileSync(path.join(filesDir, id), buf);
       db.prepare(
         "INSERT INTO attachments (id, user_id, name, type, size, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-      ).run(id, userId, media.fileName, media.mimeType, buf.length, Date.now());
-      return { id, name: media.fileName, type: media.mimeType, size: buf.length };
+      ).run(id, userId, name, type, buf.length, Date.now());
+      return { id, name, type, size: buf.length };
     } catch (err) {
       console.warn("[telegram] file download failed:", err.message);
       return null;
     }
+  }
+
+  // Download a public URL (e.g. a YouTube thumbnail) and store it.
+  async function downloadUrlAsAttachment(userId, url, name, type) {
+    if (!filesDir || !uid) return null;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length === 0 || buf.length > maxFileBytes) return null;
+      const id = uid();
+      fs.writeFileSync(path.join(filesDir, id), buf);
+      db.prepare(
+        "INSERT INTO attachments (id, user_id, name, type, size, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      ).run(id, userId, name, type, buf.length, Date.now());
+      return { id, name, type, size: buf.length };
+    } catch {
+      return null;
+    }
+  }
+
+  // Download a message's media as an attachment (respecting the size limit).
+  async function downloadAsAttachment(userId, media) {
+    if (media.fileSize && media.fileSize > maxFileBytes) return null;
+    return downloadFile(userId, media.fileId, media.fileName, media.mimeType);
   }
 
   // Insert one inbox item plus a row per attachment. Returns the inbox id.
@@ -286,17 +319,28 @@ export function createTelegram({
   }
 
   // Download every media file on a message (usually 0 or 1). Returns
-  // { attachments, oversize }.
+  // { attachments, oversize }. Too-large videos fall back to their thumbnail.
   async function collectMedia(userId, msg) {
     const media = extractMedia(msg);
     if (!media) return { attachments: [], oversize: false };
-    if (media.fileSize && media.fileSize > maxFileBytes) {
-      return { attachments: [], oversize: true };
+    const tooBig = media.fileSize && media.fileSize > maxFileBytes;
+    if (!tooBig) {
+      const a = await downloadAsAttachment(userId, media);
+      if (a) return { attachments: [{ ...a, kind: media.kind }], oversize: false };
     }
-    const a = await downloadAsAttachment(userId, media);
-    return a
-      ? { attachments: [{ ...a, kind: media.kind }], oversize: false }
-      : { attachments: [], oversize: false };
+    // Too large (or download failed): keep the thumbnail as a preview if any.
+    if (media.thumbFileId) {
+      const thumb = await downloadFile(
+        userId,
+        media.thumbFileId,
+        media.kind === "video" ? "video-thumbnail.jpg" : "thumbnail.jpg",
+        "image/jpeg",
+      );
+      if (thumb) {
+        return { attachments: [{ ...thumb, kind: "image" }], oversize: tooBig };
+      }
+    }
+    return { attachments: [], oversize: tooBig };
   }
 
   // Nudge an unlinked user to connect — at most once every few seconds/chat.
@@ -448,6 +492,37 @@ export function createTelegram({
     );
   }
 
+  // Detect a YouTube link and extract its video id.
+  function parseYouTubeLink(text) {
+    const m = String(text || "").match(
+      /https?:\/\/(?:www\.)?(?:youtube\.com\/(?:watch\?v=|shorts\/|live\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i,
+    );
+    if (!m) return null;
+    return { url: `https://www.youtube.com/watch?v=${m[1]}`, videoId: m[1] };
+  }
+
+  // Save a shared YouTube link with its (public) thumbnail as a preview image.
+  async function saveYouTubeItem(userId, msg, yt) {
+    const raw = (msg.text ?? msg.caption ?? "").trim();
+    const thumb = await downloadUrlAsAttachment(
+      userId,
+      `https://img.youtube.com/vi/${yt.videoId}/hqdefault.jpg`,
+      "youtube-thumbnail.jpg",
+      "image/jpeg",
+    );
+    const attachments = thumb ? [{ ...thumb, kind: "image" }] : [];
+    insertInboxItem({
+      userId,
+      source: sourceName(msg),
+      text: raw || yt.url,
+      date: originalDate(msg),
+      mediaKind: attachments.length ? "image" : null,
+      attachments,
+      tgMessageId: msg.message_id,
+      mediaGroupId: null,
+    });
+  }
+
   // Save an incoming (non-command) message to the linked user's inbox. Media and
   // text are bundled per burst; Instagram links go to their own inbox.
   async function saveToInbox(msg) {
@@ -461,6 +536,13 @@ export function createTelegram({
     if (ig) {
       saveInstagramItem(userId, msg, ig);
       await sendMessage(msg.chat.id, "✅ Saved to your Instagram inbox.");
+      return;
+    }
+    // YouTube links get a thumbnail preview in the Telegram inbox.
+    const yt = parseYouTubeLink(msg.text ?? msg.caption ?? "");
+    if (yt) {
+      await saveYouTubeItem(userId, msg, yt);
+      await sendMessage(msg.chat.id, "✅ Saved a YouTube video to your Journey inbox.");
       return;
     }
     // Nothing importable (e.g. a sticker with no text)?

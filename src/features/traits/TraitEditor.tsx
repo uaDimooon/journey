@@ -9,14 +9,29 @@ import { PdfViewer } from "./PdfViewer";
 import { InstagramEmbed } from "../instagram/InstagramEmbed";
 import type { Id, Trait } from "../../domain/types";
 
-// Find the first Instagram reel/post link in text and normalize it.
-function extractInstagramUrl(text: string): string | null {
-  const m = (text || "").match(
+// Find the first previewable (Instagram or YouTube) link in text.
+type EmbedPreview =
+  | { kind: "instagram"; url: string }
+  | { kind: "youtube"; url: string; videoId: string };
+function extractPreview(text: string): EmbedPreview | null {
+  const ig = (text || "").match(
     /https?:\/\/(?:www\.)?instagram\.com\/(reels?|p|tv)\/([A-Za-z0-9_-]+)/i,
   );
-  if (!m) return null;
-  const path = m[1].toLowerCase() === "p" ? "p" : "reel";
-  return `https://www.instagram.com/${path}/${m[2]}/`;
+  if (ig) {
+    const path = ig[1].toLowerCase() === "p" ? "p" : "reel";
+    return { kind: "instagram", url: `https://www.instagram.com/${path}/${ig[2]}/` };
+  }
+  const yt = (text || "").match(
+    /https?:\/\/(?:www\.)?(?:youtube\.com\/(?:watch\?v=|shorts\/|live\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i,
+  );
+  if (yt) {
+    return {
+      kind: "youtube",
+      url: `https://www.youtube.com/watch?v=${yt[1]}`,
+      videoId: yt[1],
+    };
+  }
+  return null;
 }
 
 export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] }) {
@@ -35,7 +50,7 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
     items: { id: string; name: string; type: string }[];
     index: number;
   } | null>(null);
-  const [igPreview, setIgPreview] = useState<string | null>(null);
+  const [embedPreview, setEmbedPreview] = useState<EmbedPreview | null>(null);
 
   const previewItem = preview ? preview.items[preview.index] : null;
   const stepPreview = (delta: number) =>
@@ -235,7 +250,7 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
         )}
         {traits.map((t, index) => {
           const isOpen = openId === t.id;
-          const igUrl = extractInstagramUrl(t.description);
+          const embed = extractPreview(t.description);
           const controlButtons = (
             <>
               <button
@@ -434,13 +449,13 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
                     className="w-full resize-none rounded bg-neutral-900 px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-sky-500"
                   />
 
-                  {igUrl && (
+                  {embed && (
                     <button
                       type="button"
-                      onClick={() => setIgPreview(igUrl)}
+                      onClick={() => setEmbedPreview(embed)}
                       className="inline-flex w-fit items-center gap-1 rounded bg-neutral-800 px-2 py-1 text-xs text-pink-300 hover:bg-neutral-700"
                     >
-                      ▶ Preview Instagram
+                      ▶ Preview {embed.kind === "youtube" ? "YouTube" : "Instagram"}
                     </button>
                   )}
 
@@ -715,28 +730,44 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
         </div>
       )}
 
-      {igPreview && (
+      {embedPreview && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-6"
-          onClick={() => setIgPreview(null)}
+          onClick={() => setEmbedPreview(null)}
         >
           <div
-            className="flex max-h-[86vh] w-[380px] max-w-full flex-col gap-3 overflow-auto"
+            className={`flex max-h-[86vh] flex-col gap-3 overflow-auto ${
+              embedPreview.kind === "youtube" ? "w-[720px]" : "w-[380px]"
+            } max-w-full`}
             onClick={(e) => e.stopPropagation()}
           >
-            <InstagramEmbed url={igPreview} />
+            {embedPreview.kind === "youtube" ? (
+              <div className="aspect-video w-full overflow-hidden rounded-lg bg-black">
+                <iframe
+                  src={`https://www.youtube.com/embed/${embedPreview.videoId}`}
+                  title="YouTube preview"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                  className="h-full w-full"
+                />
+              </div>
+            ) : (
+              <InstagramEmbed url={embedPreview.url} />
+            )}
             <div className="flex items-center justify-end gap-3">
               <a
-                href={igPreview}
+                href={embedPreview.url}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="rounded bg-pink-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-pink-500"
               >
-                Open in Instagram
+                {embedPreview.kind === "youtube"
+                  ? "Open in YouTube"
+                  : "Open in Instagram"}
               </a>
               <button
                 type="button"
-                onClick={() => setIgPreview(null)}
+                onClick={() => setEmbedPreview(null)}
                 className="rounded bg-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:bg-neutral-600"
               >
                 Close
