@@ -343,13 +343,15 @@ export function createTelegram({
     }
     const text = captions.join("\n");
 
-    // Download every media file across the burst.
+    // Download every media file across the burst (in parallel to keep it fast).
+    const results = await Promise.all(
+      messages.map((m) => collectMedia(userId, m)),
+    );
     const attachments = [];
     let oversize = false;
-    for (const m of messages) {
-      const { attachments: got, oversize: big } = await collectMedia(userId, m);
-      attachments.push(...got);
-      if (big) oversize = true;
+    for (const r of results) {
+      attachments.push(...r.attachments);
+      if (r.oversize) oversize = true;
     }
     const mediaKind = attachments.some((a) => a.kind === "image")
       ? "image"
