@@ -243,12 +243,13 @@ export function createTelegram({
     mediaKind,
     attachments,
     tgMessageId,
+    mediaGroupId,
   }) {
     const inboxId = uid();
     db.prepare(
       `INSERT INTO telegram_inbox
-         (id, user_id, source_name, text, attachment_id, media_kind, status, tg_message_id, tg_date, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)`,
+         (id, user_id, source_name, text, attachment_id, media_kind, status, tg_message_id, tg_date, media_group_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'new', ?, ?, ?, ?)`,
     ).run(
       inboxId,
       userId,
@@ -258,6 +259,7 @@ export function createTelegram({
       mediaKind ?? null,
       tgMessageId ?? null,
       date,
+      mediaGroupId ?? null,
       Date.now(),
     );
     attachments.forEach((a, i) => {
@@ -266,6 +268,21 @@ export function createTelegram({
       ).run(uid(), inboxId, a.id, i, Date.now());
     });
     return inboxId;
+  }
+
+  // Append attachments to an existing inbox item (after its current last one).
+  function appendMediaToItem(inboxId, attachments) {
+    let pos = db
+      .prepare(
+        "SELECT COALESCE(MAX(position), -1) AS m FROM telegram_inbox_media WHERE inbox_id = ?",
+      )
+      .get(inboxId).m;
+    for (const a of attachments) {
+      pos += 1;
+      db.prepare(
+        "INSERT INTO telegram_inbox_media (id, inbox_id, attachment_id, position, created_at) VALUES (?, ?, ?, ?, ?)",
+      ).run(uid(), inboxId, a.id, pos, Date.now());
+    }
   }
 
   // Download every media file on a message (usually 0 or 1). Returns
@@ -295,13 +312,19 @@ export function createTelegram({
 
   // Buffer album (media_group_id) messages briefly, then flush them as one item.
   const groupBuffers = new Map();
-  const GROUP_WINDOW_MS = 1500;
+  const GROUP_WINDOW_MS = 2500;
 
   function bufferGroupMessage(userId, msg) {
     const key = `${userId}:${msg.media_group_id}`;
     let entry = groupBuffers.get(key);
     if (!entry) {
-      entry = { userId, chatId: msg.chat.id, messages: [], timer: null };
+      entry = {
+        userId,
+        chatId: msg.chat.id,
+        mediaGroupId: msg.media_group_id,
+        messages: [],
+        timer: null,
+      };
       groupBuffers.set(key, entry);
     }
     entry.messages.push(msg);
@@ -315,7 +338,7 @@ export function createTelegram({
   }
 
   async function flushGroup(entry) {
-    const { userId, messages } = entry;
+    const { userId, messages, mediaGroupId } = entry;
     const first = messages[0];
     const withText = messages.find((m) => (m.caption ?? m.text ?? "").trim());
     const text = (withText?.caption ?? withText?.text ?? "").trim();
@@ -329,6 +352,28 @@ export function createTelegram({
     const mediaKind = attachments.some((a) => a.kind === "image")
       ? "image"
       : (attachments[0]?.kind ?? null);
+
+    // If an item for this album already exists (its messages arrived spread
+    // across the flush window), append to it instead of creating a duplicate.
+    const existing = mediaGroupId
+      ? db
+          .prepare(
+            "SELECT id, text FROM telegram_inbox WHERE user_id = ? AND media_group_id = ? AND status = 'new' ORDER BY created_at ASC LIMIT 1",
+          )
+          .get(userId, mediaGroupId)
+      : null;
+
+    if (existing) {
+      appendMediaToItem(existing.id, attachments);
+      if (!existing.text && text) {
+        db.prepare("UPDATE telegram_inbox SET text = ? WHERE id = ?").run(
+          text,
+          existing.id,
+        );
+      }
+      return; // one confirmation per album is enough
+    }
+
     insertInboxItem({
       userId,
       source: sourceName(first),
@@ -337,6 +382,7 @@ export function createTelegram({
       mediaKind,
       attachments,
       tgMessageId: first.message_id,
+      mediaGroupId,
     });
     const n = attachments.length || 1;
     await sendMessage(
