@@ -105,11 +105,22 @@ db.exec(`CREATE TABLE IF NOT EXISTS telegram_inbox (
   status TEXT NOT NULL DEFAULT 'new',
   tg_message_id INTEGER,
   tg_date INTEGER,
+  media_group_id TEXT,
   created_at INTEGER NOT NULL
 );`);
 db.exec(
   "CREATE INDEX IF NOT EXISTS idx_tg_inbox_user ON telegram_inbox(user_id, status);",
 );
+// Migration: add media_group_id to older telegram_inbox tables that predate it.
+{
+  const cols = db
+    .prepare("PRAGMA table_info(telegram_inbox)")
+    .all()
+    .map((c) => c.name);
+  if (!cols.includes("media_group_id")) {
+    db.exec("ALTER TABLE telegram_inbox ADD COLUMN media_group_id TEXT");
+  }
+}
 // A single inbox item can carry several attachments (e.g. a forwarded album).
 db.exec(`CREATE TABLE IF NOT EXISTS telegram_inbox_media (
   id TEXT PRIMARY KEY,
