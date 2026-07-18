@@ -9,6 +9,7 @@ import { STATUS_HEX, STATUS_LABELS, STATUS_ORDER, nodeStatus } from "../../domai
 import { linkify } from "../../lib/linkify";
 import { TraitEditor } from "../traits/TraitEditor";
 import { TraitExportModal } from "../traits/TraitExportModal";
+import { GoalCover } from "./GoalCover";
 import { OverviewList } from "./OverviewList";
 import { StatusDot } from "./StatusDot";
 import { JourneySwitcher } from "./JourneySwitcher";
@@ -169,6 +170,8 @@ export function DetailPanel() {
               />
             </div>
           )}
+
+          {node.kind === "goal" && <GoalCover node={node} />}
 
           <div>
             <label className="mb-1 block text-xs uppercase tracking-wide text-neutral-500">

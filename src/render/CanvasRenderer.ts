@@ -1,7 +1,7 @@
 /** PixiJS renderer: imperative adapter that subscribes to the stores and draws
  *  the grid, edges, and nodes. It owns no application state. */
 
-import { Application, Container, Graphics, Text } from "pixi.js";
+import { Application, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
 import {
   GRID_SUBDIVISIONS,
   goalWorldRadius,
@@ -21,6 +21,7 @@ import { useCameraStore } from "../state/cameraStore";
 import { useGraphStore } from "../state/graphStore";
 import { useSelectionStore } from "../state/selectionStore";
 import { setCanvasHitTest } from "./canvasBridge";
+import { api } from "../api/client";
 
 const DRAG_THRESHOLD = 4; // px
 
@@ -40,6 +41,11 @@ export class CanvasRenderer {
   private resizingId: string | null = null;
   private initialized = false;
   private destroyed = false;
+
+  // Cover-image textures keyed by attachment id (loaded lazily, then cached).
+  private coverTextures = new Map<string, Texture>();
+  private coverLoading = new Set<string>();
+  private coverFailed = new Set<string>();
 
   async init(container: HTMLDivElement): Promise<void> {
     await this.app.init({
@@ -258,6 +264,35 @@ export class CanvasRenderer {
     return node && node.kind === "goal" ? node.id : null;
   }
 
+  /** A cover texture from cache, lazily loading (and redrawing) on first use.
+   *  Loads via fetch + createImageBitmap (attachment URLs have no file
+   *  extension, and an ImageBitmap is the most reliable WebGL texture source). */
+  private coverTexture(id: string): Texture | null {
+    const cached = this.coverTextures.get(id);
+    if (cached) return cached;
+    if (!this.coverLoading.has(id) && !this.coverFailed.has(id)) {
+      this.coverLoading.add(id);
+      this.loadCover(id);
+    }
+    return null;
+  }
+
+  private async loadCover(id: string): Promise<void> {
+    try {
+      const res = await fetch(api.attachmentUrl(id), { credentials: "same-origin" });
+      if (!res.ok) throw new Error(`cover ${res.status}`);
+      const bitmap = await createImageBitmap(await res.blob());
+      if (this.destroyed) return;
+      this.coverTextures.set(id, Texture.from(bitmap));
+      this.redraw();
+    } catch {
+      // Don't retry a broken/missing cover on every redraw.
+      this.coverFailed.add(id);
+    } finally {
+      this.coverLoading.delete(id);
+    }
+  }
+
   private handleClick(sx: number, sy: number): void {
     const selection = useSelectionStore.getState();
     const graphStore = useGraphStore.getState();
@@ -412,11 +447,35 @@ export class CanvasRenderer {
           .stroke({ width: 2, color: node.id === linkingFrom ? 0xffd166 : 0xffffff });
       }
       gfx.circle(p.x, p.y, r).fill({ color: hexToNumber(node.color) });
+      layer.addChild(gfx);
+
+      // Cover image, clipped to the node's circle (scales with the node).
+      if (node.kind === "goal" && node.cover) {
+        const tex = this.coverTexture(node.cover.id);
+        if (tex) {
+          const sprite = new Sprite(tex);
+          const d = 2 * r;
+          const tw = tex.width || 1;
+          const th = tex.height || 1;
+          const scale = Math.max(d / tw, d / th);
+          sprite.anchor.set(0.5);
+          sprite.scale.set(scale);
+          sprite.x = p.x;
+          sprite.y = p.y;
+          const mask = new Graphics().circle(p.x, p.y, r).fill(0xffffff);
+          sprite.mask = mask;
+          layer.addChild(mask);
+          layer.addChild(sprite);
+        }
+      }
+
+      // Ring on top of the fill/cover.
+      const ring = new Graphics();
       if (node.kind === "start") {
-        gfx.circle(p.x, p.y, r).stroke({ width: 2, color: 0xffffff, alpha: 0.8 });
+        ring.circle(p.x, p.y, r).stroke({ width: 2, color: 0xffffff, alpha: 0.8 });
       } else {
         // Status ring (grey / yellow / green).
-        gfx
+        ring
           .circle(p.x, p.y, r)
           .stroke({ width: 2.5, color: hexToNumber(STATUS_HEX[nodeStatus(node)]) });
       }
@@ -424,12 +483,12 @@ export class CanvasRenderer {
       // Resize handle for the selected node.
       if (node.id === selectedId) {
         const h = this.resizeHandleScreen(node);
-        gfx
+        ring
           .circle(h.x, h.y, 5)
           .fill({ color: 0xffffff })
           .stroke({ width: 1.5, color: 0x0f1115 });
       }
-      layer.addChild(gfx);
+      layer.addChild(ring);
 
       // Level-of-detail: only label nodes that are big enough on screen.
       if (r >= 12) {

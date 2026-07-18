@@ -46,6 +46,8 @@ export interface GraphNode {
   pos: Vec2;
   /** World-space radius. Derived from the zoom level at placement time. */
   size: number;
+  /** Optional cover image shown clipped inside the node's circle. */
+  cover?: TraitAttachment | null;
 }
 
 /** One-directional connection: `from` (subgoal) feeds into `to` (goal). */
