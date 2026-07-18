@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type InboxItem } from "../../api/client";
 import { useGraphStore } from "../../state/graphStore";
 import { useSelectionStore } from "../../state/selectionStore";
-import type { Id } from "../../domain/types";
+import type { Id, Trait } from "../../domain/types";
 
 const KIND_ICON: Record<string, string> = {
   image: "🖼️",
@@ -13,6 +13,8 @@ const KIND_ICON: Record<string, string> = {
   audio: "🎧",
   file: "📎",
 };
+
+const NO_TRAITS: Trait[] = [];
 
 function firstLine(text: string | null): string {
   return (text ?? "").split("\n")[0]?.trim() ?? "";
@@ -76,9 +78,13 @@ export function TelegramInbox() {
   const addGoal = useGraphStore((s) => s.addGoal);
   const updateNode = useGraphStore((s) => s.updateNode);
   const addTraitDetailed = useGraphStore((s) => s.addTraitDetailed);
+  const appendToTrait = useGraphStore((s) => s.appendToTrait);
   const selectedId = useSelectionStore((s) => s.selectedId);
   const selectedName = useGraphStore((s) =>
     selectedId ? (s.graph.nodes[selectedId]?.name ?? null) : null,
+  );
+  const selectedTraits = useGraphStore((s) =>
+    selectedId ? (s.graph.nodes[selectedId]?.traits ?? NO_TRAITS) : NO_TRAITS,
   );
 
   const refresh = useCallback(async () => {
@@ -143,6 +149,29 @@ export function TelegramInbox() {
         name: itemTitle(item),
         description: descWithProvenance(item),
         ...traitMediaProps(item),
+      });
+      await api.telegramInboxImport(item.id);
+      await refresh();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // Merge an item's text + media into one of the selected goal's existing traits.
+  const toExistingTrait = async (item: InboxItem, traitId: Id) => {
+    if (!selectedId) return;
+    setBusyId(item.id);
+    try {
+      const atts = item.attachments.map((a) => ({
+        id: a.id,
+        name: a.name,
+        type: a.type,
+      }));
+      const firstImage = atts.find((a) => a.type.startsWith("image/"));
+      appendToTrait(selectedId, traitId, {
+        description: descWithProvenance(item),
+        attachments: atts,
+        cover: firstImage ?? null,
       });
       await api.telegramInboxImport(item.id);
       await refresh();
@@ -253,6 +282,25 @@ export function TelegramInbox() {
                 >
                   → Trait{selectedName ? ` on ${selectedName}` : ""}
                 </button>
+                {selectedId && selectedTraits.length > 0 && (
+                  <select
+                    value=""
+                    disabled={busy}
+                    onChange={(e) => {
+                      if (e.target.value) toExistingTrait(item, e.target.value);
+                      e.target.value = "";
+                    }}
+                    title="Add into an existing trait"
+                    className="max-w-[9rem] rounded bg-neutral-700 px-1.5 py-1 text-neutral-200 hover:bg-neutral-600 disabled:opacity-40"
+                  >
+                    <option value="">→ existing trait…</option>
+                    {selectedTraits.map((tr) => (
+                      <option key={tr.id} value={tr.id}>
+                        {tr.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <button
                   type="button"
                   onClick={() => dismiss(item)}

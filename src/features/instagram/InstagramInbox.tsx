@@ -7,7 +7,9 @@ import { api, type InstagramItem } from "../../api/client";
 import { useGraphStore } from "../../state/graphStore";
 import { useSelectionStore } from "../../state/selectionStore";
 import { InstagramEmbed } from "./InstagramEmbed";
-import type { Id } from "../../domain/types";
+import type { Id, Trait } from "../../domain/types";
+
+const NO_TRAITS: Trait[] = [];
 
 function firstLine(text: string | null): string {
   return (text ?? "").split("\n")[0]?.trim() ?? "";
@@ -44,9 +46,13 @@ export function InstagramInbox() {
   const addGoal = useGraphStore((s) => s.addGoal);
   const updateNode = useGraphStore((s) => s.updateNode);
   const addTraitDetailed = useGraphStore((s) => s.addTraitDetailed);
+  const appendToTrait = useGraphStore((s) => s.appendToTrait);
   const selectedId = useSelectionStore((s) => s.selectedId);
   const selectedName = useGraphStore((s) =>
     selectedId ? (s.graph.nodes[selectedId]?.name ?? null) : null,
+  );
+  const selectedTraits = useGraphStore((s) =>
+    selectedId ? (s.graph.nodes[selectedId]?.traits ?? NO_TRAITS) : NO_TRAITS,
   );
 
   const refresh = useCallback(async () => {
@@ -103,6 +109,21 @@ export function InstagramInbox() {
     try {
       addTraitDetailed(selectedId, {
         name: itemTitle(item),
+        description: description(item),
+      });
+      await api.instagramInboxImport(item.id);
+      await refresh();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // Merge an Instagram item's note + link into an existing trait's description.
+  const toExistingTrait = async (item: InstagramItem, traitId: Id) => {
+    if (!selectedId) return;
+    setBusyId(item.id);
+    try {
+      appendToTrait(selectedId, traitId, {
         description: description(item),
       });
       await api.instagramInboxImport(item.id);
@@ -193,6 +214,25 @@ export function InstagramInbox() {
                   >
                     → Trait{selectedName ? ` on ${selectedName}` : ""}
                   </button>
+                  {selectedId && selectedTraits.length > 0 && (
+                    <select
+                      value=""
+                      disabled={busy}
+                      onChange={(e) => {
+                        if (e.target.value) toExistingTrait(item, e.target.value);
+                        e.target.value = "";
+                      }}
+                      title="Add into an existing trait"
+                      className="max-w-[9rem] rounded bg-neutral-700 px-1.5 py-1 text-neutral-200 hover:bg-neutral-600 disabled:opacity-40"
+                    >
+                      <option value="">→ existing trait…</option>
+                      {selectedTraits.map((tr) => (
+                        <option key={tr.id} value={tr.id}>
+                          {tr.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <button
                     type="button"
                     onClick={() => dismiss(item)}
