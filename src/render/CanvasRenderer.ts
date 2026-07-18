@@ -20,6 +20,7 @@ import type { GraphNode, Id, Vec2 } from "../domain/types";
 import { useCameraStore } from "../state/cameraStore";
 import { useGraphStore } from "../state/graphStore";
 import { useSelectionStore } from "../state/selectionStore";
+import { setCanvasHitTest } from "./canvasBridge";
 
 const DRAG_THRESHOLD = 4; // px
 
@@ -71,12 +72,16 @@ export class CanvasRenderer {
     });
     this.resizeObserver.observe(container);
 
+    // Let React drag-and-drop hit-test goal nodes on this canvas.
+    setCanvasHitTest((clientX, clientY) => this.nodeIdAtClient(clientX, clientY));
+
     this.initialized = true;
     this.redraw();
   }
 
   destroy(): void {
     this.destroyed = true;
+    setCanvasHitTest(null);
     this.unsub.forEach((fn) => fn());
     this.unsub = [];
     this.resizeObserver?.disconnect();
@@ -243,6 +248,14 @@ export class CanvasRenderer {
       if (dist <= r) hit = node;
     }
     return hit;
+  }
+
+  /** Hit-test in client (viewport) coordinates. Returns a goal node id or null. */
+  nodeIdAtClient(clientX: number, clientY: number): string | null {
+    if (!this.initialized) return null;
+    const rect = this.app.canvas.getBoundingClientRect();
+    const node = this.hitTest({ x: clientX - rect.left, y: clientY - rect.top });
+    return node && node.kind === "goal" ? node.id : null;
   }
 
   private handleClick(sx: number, sy: number): void {

@@ -46,8 +46,7 @@ interface GraphState {
     },
   ) => Id | null;
   removeTrait: (id: Id, traitId: Id) => void;
-  renameTrait: (id: Id, traitId: Id, name: string) => void;
-  /** Set a trait's description. */
+  renameTrait: (id: Id, traitId: Id, name: string) => void;  /** Set a trait's description. */
   setTraitDescription: (id: Id, traitId: Id, description: string) => void;
   /** Attach a file/image reference to a trait. */
   addTraitAttachment: (id: Id, traitId: Id, attachment: TraitAttachment) => void;
@@ -58,6 +57,26 @@ interface GraphState {
   toggleTrait: (id: Id, traitId: Id) => void;
   /** Reorder a node's traits by moving one from `fromIndex` to `toIndex`. */
   reorderTraits: (id: Id, fromIndex: number, toIndex: number) => void;
+  /** Move a whole trait from one node to another (reassign). */
+  moveTrait: (fromNodeId: Id, traitId: Id, toNodeId: Id) => void;
+  /** Move an attachment reference from one trait to another (possibly across nodes). */
+  moveAttachment: (
+    fromNodeId: Id,
+    fromTraitId: Id,
+    toNodeId: Id,
+    toTraitId: Id,
+    attachmentId: Id,
+  ) => void;
+  /** Merge extra content (attachments/description/cover) into an existing trait. */
+  appendToTrait: (
+    id: Id,
+    traitId: Id,
+    patch: {
+      description?: string;
+      attachments?: TraitAttachment[];
+      cover?: TraitAttachment | null;
+    },
+  ) => void;
   reset: () => void;
 }
 
@@ -368,6 +387,116 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
             graph: {
               ...s.graph,
               nodes: { ...s.graph.nodes, [id]: { ...node, traits } },
+            },
+          };
+        }),
+
+      moveTrait: (fromNodeId, traitId, toNodeId) =>
+        set((s) => {
+          if (fromNodeId === toNodeId) return s;
+          const from = s.graph.nodes[fromNodeId];
+          const to = s.graph.nodes[toNodeId];
+          if (!from || !to) return s;
+          const trait = from.traits.find((t) => t.id === traitId);
+          if (!trait) return s;
+          return {
+            graph: {
+              ...s.graph,
+              nodes: {
+                ...s.graph.nodes,
+                [fromNodeId]: {
+                  ...from,
+                  traits: from.traits.filter((t) => t.id !== traitId),
+                },
+                [toNodeId]: { ...to, traits: [...to.traits, trait] },
+              },
+            },
+          };
+        }),
+
+      moveAttachment: (fromNodeId, fromTraitId, toNodeId, toTraitId, attachmentId) =>
+        set((s) => {
+          if (fromNodeId === toNodeId && fromTraitId === toTraitId) return s;
+          const from = s.graph.nodes[fromNodeId];
+          const to = s.graph.nodes[toNodeId];
+          if (!from || !to) return s;
+          const fromTrait = from.traits.find((t) => t.id === fromTraitId);
+          const toTrait = to.traits.find((t) => t.id === toTraitId);
+          if (!fromTrait || !toTrait) return s;
+          const att = fromTrait.attachments.find((a) => a.id === attachmentId);
+          if (!att) return s;
+          if (toTrait.attachments.some((a) => a.id === attachmentId)) return s;
+
+          const stripFrom = (traits: typeof from.traits) =>
+            traits.map((t) =>
+              t.id === fromTraitId
+                ? {
+                    ...t,
+                    attachments: t.attachments.filter((a) => a.id !== attachmentId),
+                  }
+                : t,
+            );
+          const addTo = (traits: typeof to.traits) =>
+            traits.map((t) =>
+              t.id === toTraitId
+                ? { ...t, attachments: [...t.attachments, att] }
+                : t,
+            );
+
+          if (fromNodeId === toNodeId) {
+            return {
+              graph: {
+                ...s.graph,
+                nodes: {
+                  ...s.graph.nodes,
+                  [fromNodeId]: { ...from, traits: addTo(stripFrom(from.traits)) },
+                },
+              },
+            };
+          }
+          return {
+            graph: {
+              ...s.graph,
+              nodes: {
+                ...s.graph.nodes,
+                [fromNodeId]: { ...from, traits: stripFrom(from.traits) },
+                [toNodeId]: { ...to, traits: addTo(to.traits) },
+              },
+            },
+          };
+        }),
+
+      appendToTrait: (id, traitId, patch) =>
+        set((s) => {
+          const node = s.graph.nodes[id];
+          if (!node) return s;
+          return {
+            graph: {
+              ...s.graph,
+              nodes: {
+                ...s.graph.nodes,
+                [id]: {
+                  ...node,
+                  traits: node.traits.map((tr) => {
+                    if (tr.id !== traitId) return tr;
+                    const existingIds = new Set(tr.attachments.map((a) => a.id));
+                    const added = (patch.attachments ?? []).filter(
+                      (a) => !existingIds.has(a.id),
+                    );
+                    const description = patch.description?.trim()
+                      ? tr.description
+                        ? `${tr.description}\n\n${patch.description.trim()}`
+                        : patch.description.trim()
+                      : tr.description;
+                    return {
+                      ...tr,
+                      description,
+                      attachments: [...tr.attachments, ...added],
+                      cover: tr.cover ?? patch.cover ?? null,
+                    };
+                  }),
+                },
+              },
             },
           };
         }),
