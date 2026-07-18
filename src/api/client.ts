@@ -146,6 +146,12 @@ export const api = {
     request<{ ok: true }>(`/api/attachments/${encodeURIComponent(id)}`, {
       method: "DELETE",
     }),
+  /** Duplicate a stored file into a new, independent attachment. */
+  duplicateAttachment: (id: string) =>
+    request<{ attachment: Attachment }>(
+      `/api/attachments/${encodeURIComponent(id)}/duplicate`,
+      { method: "POST" },
+    ).then((r) => r.attachment),
 
   // --- Telegram integration ---
   telegramStatus: () =>

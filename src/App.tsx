@@ -5,6 +5,7 @@ import { useGraphSync } from "./features/app/useGraphSync";
 import { AuthScreen } from "./features/auth/AuthScreen";
 import { DetailPanel } from "./features/panel/DetailPanel";
 import { CanvasView } from "./features/canvas/CanvasView";
+import { CopyMoveDialog } from "./features/app/CopyMoveDialog";
 
 function AuthedApp({ userId }: { userId: string }) {
   useGraphSync(userId);
@@ -24,6 +25,7 @@ function AuthedApp({ userId }: { userId: string }) {
       <main className="relative h-full flex-1">
         <CanvasView />
       </main>
+      <CopyMoveDialog />
     </div>
   );
 }

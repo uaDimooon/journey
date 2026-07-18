@@ -432,6 +432,23 @@ app.get("/api/attachments/:id", requireUser, (req, res) => {
   fs.createReadStream(file).pipe(res);
 });
 
+// Duplicate a file into a brand-new, independent attachment (used when copying
+// an attachment or trait between traits so the two references never share bytes).
+app.post("/api/attachments/:id/duplicate", requireUser, (req, res) => {
+  const row = db
+    .prepare("SELECT * FROM attachments WHERE id = ? AND user_id = ?")
+    .get(req.params.id, req.user.id);
+  if (!row) return res.status(404).json({ error: "Not found." });
+  const src = path.join(filesDir, row.id);
+  if (!fs.existsSync(src)) return res.status(404).json({ error: "File missing." });
+  const id = uid();
+  fs.copyFileSync(src, path.join(filesDir, id));
+  db.prepare(
+    "INSERT INTO attachments (id, user_id, name, type, size, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+  ).run(id, req.user.id, row.name, row.type, row.size, Date.now());
+  res.json({ attachment: { id, name: row.name, type: row.type, size: row.size } });
+});
+
 // Delete a file.
 app.delete("/api/attachments/:id", requireUser, (req, res) => {
   const row = db

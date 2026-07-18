@@ -3,6 +3,8 @@
 
 import { useEffect, useState } from "react";
 import { useGraphStore } from "../../state/graphStore";
+import { useDragStore } from "../../state/dragStore";
+import { chooseCopyOrMove } from "../../state/chooseStore";
 import { api, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_MB } from "../../api/client";
 import { linkify } from "../../lib/linkify";
 import { PdfViewer } from "./PdfViewer";
@@ -46,6 +48,14 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
   const [dropTraitId, setDropTraitId] = useState<Id | null>(null);
   const [coverDropId, setCoverDropId] = useState<Id | null>(null);
   const [coverBusyId, setCoverBusyId] = useState<Id | null>(null);
+  // Dragging an attachment from one trait onto another (move/copy).
+  const [attachDrag, setAttachDrag] = useState<{
+    fromTraitId: Id;
+    attachmentId: Id;
+    name: string;
+  } | null>(null);
+  const [attachDropId, setAttachDropId] = useState<Id | null>(null);
+  const [attachBusy, setAttachBusy] = useState(false);
   const [preview, setPreview] = useState<{
     items: { id: string; name: string; type: string }[];
     index: number;
@@ -80,6 +90,9 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
   const setTraitCover = useGraphStore((s) => s.setTraitCover);
   const toggleTrait = useGraphStore((s) => s.toggleTrait);
   const reorderTraits = useGraphStore((s) => s.reorderTraits);
+  const moveAttachment = useGraphStore((s) => s.moveAttachment);
+  const startTraitDrag = useDragStore((s) => s.startTrait);
+  const endTraitDrag = useDragStore((s) => s.endTrait);
 
   const submit = () => {
     const t = value.trim();
@@ -164,6 +177,34 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
     api.deleteAttachment(attachmentId).catch(() => {
       // best-effort server cleanup
     });
+  };
+
+  // Drop an attachment dragged from another trait onto this one (move/copy).
+  const handleAttachmentDrop = async (toTraitId: Id) => {
+    const drag = attachDrag;
+    setAttachDrag(null);
+    setAttachDropId(null);
+    if (!drag || drag.fromTraitId === toTraitId) return;
+    const source = traits.find((t) => t.id === drag.fromTraitId);
+    const att = source?.attachments.find((a) => a.id === drag.attachmentId);
+    if (!att) return;
+    const choice = await chooseCopyOrMove(
+      `Move or copy "${att.name}" to this trait?`,
+    );
+    if (!choice) return;
+    if (choice === "move") {
+      moveAttachment(nodeId, drag.fromTraitId, nodeId, toTraitId, drag.attachmentId);
+      return;
+    }
+    setAttachBusy(true);
+    try {
+      const dup = await api.duplicateAttachment(att.id);
+      addTraitAttachment(nodeId, toTraitId, dup);
+    } catch (err) {
+      setUploadError((err as Error).message);
+    } finally {
+      setAttachBusy(false);
+    }
   };
 
   // Upload an image and set it as the trait's square cover. Replacing an
@@ -316,13 +357,35 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
             <li
               key={t.id}
               draggable={editingId === null && !isOpen}
-              onDragStart={() => setDragIndex(index)}
-              onDragOver={(e) => e.preventDefault()}
+              onDragStart={(e) => {
+                setDragIndex(index);
+                startTraitDrag({ fromNodeId: nodeId, traitId: t.id, name: t.name });
+                e.dataTransfer.effectAllowed = "copyMove";
+              }}
+              onDragEnd={() => {
+                setDragIndex(null);
+                endTraitDrag();
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (attachDrag && attachDrag.fromTraitId !== t.id) {
+                  setAttachDropId(t.id);
+                }
+              }}
+              onDragLeave={() => {
+                if (attachDrag) setAttachDropId((cur) => (cur === t.id ? null : cur));
+              }}
               onDrop={() => {
-                if (dragIndex !== null) reorderTraits(nodeId, dragIndex, index);
+                if (attachDrag) {
+                  void handleAttachmentDrop(t.id);
+                } else if (dragIndex !== null) {
+                  reorderTraits(nodeId, dragIndex, index);
+                }
                 setDragIndex(null);
               }}
-              className={`rounded ${dragIndex === index ? "opacity-50" : ""}`}
+              className={`rounded ${dragIndex === index ? "opacity-50" : ""} ${
+                attachDropId === t.id ? "ring-2 ring-emerald-400" : ""
+              }`}
             >
               {editingId === t.id ? (
                 <div
@@ -591,7 +654,22 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
                         return (
                           <div
                             key={a.id}
-                            className="group relative flex items-center gap-1 rounded border border-neutral-700 bg-neutral-900 p-1"
+                            draggable
+                            onDragStart={(e) => {
+                              setAttachDrag({
+                                fromTraitId: t.id,
+                                attachmentId: a.id,
+                                name: a.name,
+                              });
+                              e.dataTransfer.effectAllowed = "copyMove";
+                              e.stopPropagation();
+                            }}
+                            onDragEnd={() => {
+                              setAttachDrag(null);
+                              setAttachDropId(null);
+                            }}
+                            title="Drag onto another trait to move or copy"
+                            className="group relative flex cursor-grab items-center gap-1 rounded border border-neutral-700 bg-neutral-900 p-1"
                           >
                             {isImage ? (
                               <button
@@ -704,6 +782,11 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
                   </label>
                   {uploadError && (
                     <p className="text-[11px] text-red-400">{uploadError}</p>
+                  )}
+                  {attachBusy && (
+                    <p className="text-[11px] text-emerald-300">
+                      Copying attachment…
+                    </p>
                   )}
                 </div>
               )}
