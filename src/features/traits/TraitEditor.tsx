@@ -8,7 +8,6 @@ import { chooseCopyOrMove } from "../../state/chooseStore";
 import { api, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_MB } from "../../api/client";
 import { linkify } from "../../lib/linkify";
 import { PdfViewer } from "./PdfViewer";
-import { TraitExportModal } from "./TraitExportModal";
 import { InstagramEmbed } from "../instagram/InstagramEmbed";
 import type { Id, Trait } from "../../domain/types";
 
@@ -57,7 +56,6 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
   } | null>(null);
   const [attachDropId, setAttachDropId] = useState<Id | null>(null);
   const [attachBusy, setAttachBusy] = useState(false);
-  const [showExport, setShowExport] = useState(false);
   const [preview, setPreview] = useState<{
     items: { id: string; name: string; type: string }[];
     index: number;
@@ -95,7 +93,6 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
   const moveAttachment = useGraphStore((s) => s.moveAttachment);
   const startTraitDrag = useDragStore((s) => s.startTrait);
   const endTraitDrag = useDragStore((s) => s.endTrait);
-  const nodeName = useGraphStore((s) => s.graph.nodes[nodeId]?.name ?? "Traits");
 
   const submit = () => {
     const t = value.trim();
@@ -847,24 +844,6 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
           Add
         </button>
       </div>
-
-      {traits.length > 0 && (
-        <button
-          type="button"
-          onClick={() => setShowExport(true)}
-          className="mt-2 inline-flex w-fit items-center gap-1 rounded bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700"
-        >
-          🖼️ Export traits as image
-        </button>
-      )}
-
-      {showExport && (
-        <TraitExportModal
-          traits={traits}
-          nodeName={nodeName}
-          onClose={() => setShowExport(false)}
-        />
-      )}
 
       {preview && previewItem && (
         <div

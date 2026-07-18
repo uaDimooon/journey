@@ -1,5 +1,6 @@
 /** Left detail panel: binds to the selected node and the graph. */
 
+import { useState } from "react";
 import { useGraphStore } from "../../state/graphStore";
 import { useSelectionStore } from "../../state/selectionStore";
 import { useAuthStore } from "../../state/authStore";
@@ -7,6 +8,7 @@ import { incomingNodes } from "../../domain/graph";
 import { STATUS_HEX, STATUS_LABELS, STATUS_ORDER, nodeStatus } from "../../domain/status";
 import { linkify } from "../../lib/linkify";
 import { TraitEditor } from "../traits/TraitEditor";
+import { TraitExportModal } from "../traits/TraitExportModal";
 import { OverviewList } from "./OverviewList";
 import { StatusDot } from "./StatusDot";
 import { JourneySwitcher } from "./JourneySwitcher";
@@ -32,6 +34,8 @@ export function DetailPanel() {
 
   const userEmail = useAuthStore((s) => s.user?.email);
   const logout = useAuthStore((s) => s.logout);
+
+  const [showExport, setShowExport] = useState(false);
 
   return (
     <aside className="flex h-full w-80 shrink-0 flex-col gap-4 overflow-y-auto border-r border-neutral-800 bg-neutral-900 p-4">
@@ -91,6 +95,24 @@ export function DetailPanel() {
               className="w-full rounded bg-neutral-800 px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-sky-500"
             />
           </div>
+
+          {node.traits.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowExport(true)}
+              className="inline-flex w-fit items-center gap-1 self-start rounded bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700"
+            >
+              🖼️ Export traits as image
+            </button>
+          )}
+
+          {showExport && (
+            <TraitExportModal
+              traits={node.traits}
+              nodeName={node.name}
+              onClose={() => setShowExport(false)}
+            />
+          )}
 
           {node.kind === "goal" && (
             <div>
