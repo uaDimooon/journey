@@ -56,6 +56,15 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
   } | null>(null);
   const [attachDropId, setAttachDropId] = useState<Id | null>(null);
   const [attachBusy, setAttachBusy] = useState(false);
+  // Trait ids whose "Use attached" cover picker is expanded (collapsed by default).
+  const [coverPoolOpen, setCoverPoolOpen] = useState<Set<Id>>(new Set());
+  const toggleCoverPool = (id: Id) =>
+    setCoverPoolOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   const [preview, setPreview] = useState<{
     items: { id: string; name: string; type: string }[];
     index: number;
@@ -635,45 +644,62 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
                     {t.attachments.some((a) =>
                       a.type.startsWith("image/"),
                     ) && (
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-[11px] text-neutral-500">
-                          Use attached:
-                        </span>
-                        {t.attachments
-                          .filter((a) => a.type.startsWith("image/"))
-                          .map((a) => {
-                            const isCover = t.cover?.id === a.id;
-                            return (
-                              <button
-                                key={a.id}
-                                type="button"
-                                onClick={() =>
-                                  setCoverFromAttachment(
-                                    t.id,
-                                    a,
-                                    t.cover?.id,
-                                    t.attachments.map((x) => x.id),
-                                  )
-                                }
-                                title={
-                                  isCover
-                                    ? "Current cover"
-                                    : `Use ${a.name} as cover`
-                                }
-                                className={`h-9 w-9 overflow-hidden rounded ring-1 ${
-                                  isCover
-                                    ? "ring-2 ring-sky-400"
-                                    : "ring-neutral-700 hover:ring-sky-500"
-                                }`}
-                              >
-                                <img
-                                  src={api.attachmentUrl(a.id)}
-                                  alt={a.name}
-                                  className="h-full w-full object-cover"
-                                />
-                              </button>
-                            );
-                          })}
+                      <div className="flex flex-col gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => toggleCoverPool(t.id)}
+                          className="inline-flex w-fit items-center gap-1 text-[11px] text-neutral-400 hover:text-neutral-200"
+                        >
+                          <span className="text-neutral-600">
+                            {coverPoolOpen.has(t.id) ? "▾" : "▸"}
+                          </span>
+                          Use attached (
+                          {
+                            t.attachments.filter((a) =>
+                              a.type.startsWith("image/"),
+                            ).length
+                          }
+                          )
+                        </button>
+                        {coverPoolOpen.has(t.id) && (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {t.attachments
+                              .filter((a) => a.type.startsWith("image/"))
+                              .map((a) => {
+                                const isCover = t.cover?.id === a.id;
+                                return (
+                                  <button
+                                    key={a.id}
+                                    type="button"
+                                    onClick={() =>
+                                      setCoverFromAttachment(
+                                        t.id,
+                                        a,
+                                        t.cover?.id,
+                                        t.attachments.map((x) => x.id),
+                                      )
+                                    }
+                                    title={
+                                      isCover
+                                        ? "Current cover"
+                                        : `Use ${a.name} as cover`
+                                    }
+                                    className={`h-9 w-9 overflow-hidden rounded ring-1 ${
+                                      isCover
+                                        ? "ring-2 ring-sky-400"
+                                        : "ring-neutral-700 hover:ring-sky-500"
+                                    }`}
+                                  >
+                                    <img
+                                      src={api.attachmentUrl(a.id)}
+                                      alt={a.name}
+                                      className="h-full w-full object-cover"
+                                    />
+                                  </button>
+                                );
+                              })}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
