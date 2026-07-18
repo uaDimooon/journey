@@ -387,7 +387,41 @@ export function TraitEditor({ nodeId, traits }: { nodeId: Id; traits: Trait[] })
                 attachDropId === t.id ? "ring-2 ring-emerald-400" : ""
               }`}
             >
-              {editingId === t.id ? (
+              {editingId === t.id && t.cover ? (
+                // Editing a trait that has a cover: keep the cover visible and
+                // overlay the title input so it doesn't disappear.
+                <div
+                  className="group relative aspect-square w-full overflow-hidden rounded-lg ring-2 ring-sky-400"
+                  onPaste={(e) => onPasteCover(t.id, t.cover?.id, e)}
+                >
+                  <img
+                    src={api.attachmentUrl(t.cover.id)}
+                    alt=""
+                    className="absolute inset-0 h-full w-full object-cover"
+                  />
+                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-black/5" />
+                  <input
+                    type="checkbox"
+                    checked={t.done}
+                    onChange={() => toggleTrait(nodeId, t.id)}
+                    className="absolute left-2 top-2 z-20 h-4 w-4 cursor-pointer accent-sky-500"
+                    aria-label={`Mark ${t.name} done`}
+                  />
+                  <div className="absolute inset-x-0 bottom-0 z-10 p-2.5">
+                    <input
+                      autoFocus
+                      value={editDraft}
+                      onChange={(e) => setEditDraft(e.target.value)}
+                      onBlur={commitEdit}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") commitEdit();
+                        if (e.key === "Escape") setEditingId(null);
+                      }}
+                      className="w-full rounded bg-black/60 px-2 py-1 text-sm font-semibold text-white outline-none ring-1 ring-white/30 backdrop-blur-sm focus:ring-2 focus:ring-sky-400"
+                    />
+                  </div>
+                </div>
+              ) : editingId === t.id ? (
                 <div
                   className="flex items-center gap-1.5 rounded px-1 py-0.5 text-xs"
                   onPaste={(e) => onPasteCover(t.id, t.cover?.id, e)}
