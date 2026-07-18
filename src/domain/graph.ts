@@ -34,10 +34,16 @@ export function normalizeTrait(raw: unknown): Trait {
 /** Ensure a node has a status and structured traits (handles legacy data). */
 export function normalizeNode(node: GraphNode): GraphNode {
   const rawTraits = Array.isArray(node.traits) ? node.traits : [];
+  const rawCover = node.cover as Partial<TraitAttachment> | null | undefined;
+  const cover =
+    rawCover && typeof rawCover.id === "string"
+      ? { id: rawCover.id, name: rawCover.name ?? "", type: rawCover.type ?? "image/*" }
+      : null;
   return {
     ...node,
     status: node.status ?? "next-up",
     traits: rawTraits.map(normalizeTrait),
+    cover,
   };
 }
 
