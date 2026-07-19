@@ -33,6 +33,13 @@ export interface TelegramStatus {
   linkedAt: number | null;
 }
 
+export interface AiSuggestion {
+  status: "pending" | "done" | "error" | "none";
+  title: string | null;
+  description: string | null;
+  steps: string[];
+}
+
 export interface InboxItem {
   id: string;
   source: string | null;
@@ -40,6 +47,7 @@ export interface InboxItem {
   mediaKind: "image" | "video" | "audio" | "file" | null;
   date: number;
   attachments: Attachment[];
+  ai: AiSuggestion | null;
 }
 
 export interface InstagramItem {

@@ -77,6 +77,7 @@ export function TelegramInbox() {
 
   const addGoal = useGraphStore((s) => s.addGoal);
   const updateNode = useGraphStore((s) => s.updateNode);
+  const addTrait = useGraphStore((s) => s.addTrait);
   const addTraitDetailed = useGraphStore((s) => s.addTraitDetailed);
   const appendToTrait = useGraphStore((s) => s.appendToTrait);
   const selectedId = useSelectionStore((s) => s.selectedId);
@@ -150,6 +151,47 @@ export function TelegramInbox() {
         description: descWithProvenance(item),
         ...traitMediaProps(item),
       });
+      await api.telegramInboxImport(item.id);
+      await refresh();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // Turn an AI-enriched item into a goal: title + description from the model,
+  // each suggested step becomes a (checkable) trait, media becomes the cover.
+  const toGoalWithSteps = async (item: InboxItem) => {
+    const ai = item.ai;
+    if (!ai) return;
+    setBusyId(item.id);
+    try {
+      const goalId = placeGoal();
+      if (goalId) {
+        const firstImage = item.attachments.find((a) =>
+          a.type.startsWith("image/"),
+        );
+        updateNode(goalId, {
+          name: ai.title || itemTitle(item),
+          description: ai.description || descWithProvenance(item),
+          ...(firstImage
+            ? {
+                cover: {
+                  id: firstImage.id,
+                  name: firstImage.name,
+                  type: firstImage.type,
+                },
+              }
+            : {}),
+        });
+        for (const step of ai.steps) addTrait(goalId, step);
+        // Preserve the original media as a trait so nothing is lost.
+        if (item.attachments.length) {
+          addTraitDetailed(goalId, {
+            name: itemTitle(item),
+            ...traitMediaProps(item),
+          });
+        }
+      }
       await api.telegramInboxImport(item.id);
       await refresh();
     } finally {
@@ -260,6 +302,50 @@ export function TelegramInbox() {
                   </p>
                 </div>
               </div>
+
+              {item.ai?.status === "pending" && (
+                <p className="mt-1.5 text-[11px] text-violet-300">
+                  ✨ Analyzing…
+                </p>
+              )}
+              {item.ai?.status === "done" && (
+                <div className="mt-2 rounded-md border border-violet-500/30 bg-violet-500/10 p-2">
+                  <p className="text-[10px] uppercase tracking-wide text-violet-300">
+                    ✨ AI suggestion
+                  </p>
+                  {item.ai.title && (
+                    <p className="mt-0.5 font-medium text-neutral-100">
+                      {item.ai.title}
+                    </p>
+                  )}
+                  {item.ai.description && (
+                    <p className="mt-0.5 whitespace-pre-wrap text-neutral-300">
+                      {item.ai.description}
+                    </p>
+                  )}
+                  {item.ai.steps.length > 0 && (
+                    <ol className="mt-1 list-decimal space-y-0.5 pl-4 text-neutral-300">
+                      {item.ai.steps.map((s, i) => (
+                        <li key={i}>{s}</li>
+                      ))}
+                    </ol>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => toGoalWithSteps(item)}
+                    disabled={busy}
+                    className="mt-2 rounded bg-violet-600 px-2 py-1 font-medium text-white hover:bg-violet-500 disabled:opacity-50"
+                  >
+                    ✨ New goal
+                    {item.ai.steps.length > 0
+                      ? ` with ${item.ai.steps.length} step${
+                          item.ai.steps.length === 1 ? "" : "s"
+                        }`
+                      : ""}
+                  </button>
+                </div>
+              )}
+
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 <button
                   type="button"
