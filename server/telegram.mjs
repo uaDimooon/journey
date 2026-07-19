@@ -19,6 +19,7 @@ export function createTelegram({
   uid,
   token = null,
   maxFileBytes = 20 * 1024 * 1024,
+  ai = null,
 }) {
   const botToken = token?.trim() || null;
   let botUsername = null;
@@ -318,6 +319,55 @@ export function createTelegram({
     }
   }
 
+  // Enrich an inbox item with an AI suggestion (title/description/steps). Runs
+  // in the background: transcribes a forwarded video file (if any) and, together
+  // with the caption, asks the model for a structured note. No-op without AI.
+  async function enrichItem(inboxId, { text, attachments }) {
+    if (!ai?.enabled) return;
+    const caption = (text ?? "").trim();
+    const video = (attachments ?? []).find((a) =>
+      (a.type ?? "").startsWith("video/"),
+    );
+    if (!caption && !video) return; // nothing to work with
+
+    db.prepare("UPDATE telegram_inbox SET ai_status = 'pending' WHERE id = ?").run(
+      inboxId,
+    );
+    try {
+      let transcript = "";
+      if (video) {
+        const filePath = path.join(filesDir, video.id);
+        if (fs.existsSync(filePath)) {
+          try {
+            transcript = await ai.transcribe(filePath, video.name);
+          } catch (err) {
+            console.warn("[ai] transcription failed:", err.message);
+          }
+        }
+      }
+      const result = await ai.structure({ caption, transcript });
+      if (!result) {
+        db.prepare("UPDATE telegram_inbox SET ai_status = 'none' WHERE id = ?").run(
+          inboxId,
+        );
+        return;
+      }
+      db.prepare(
+        "UPDATE telegram_inbox SET ai_status = 'done', ai_title = ?, ai_description = ?, ai_steps = ? WHERE id = ?",
+      ).run(
+        result.title || null,
+        result.description || null,
+        JSON.stringify(result.steps ?? []),
+        inboxId,
+      );
+    } catch (err) {
+      console.warn("[ai] enrichment failed:", err.message);
+      db.prepare("UPDATE telegram_inbox SET ai_status = 'error' WHERE id = ?").run(
+        inboxId,
+      );
+    }
+  }
+
   // Download every media file on a message (usually 0 or 1). Returns
   // { attachments, oversize }. Too-large videos fall back to their thumbnail.
   async function collectMedia(userId, msg) {
@@ -436,7 +486,7 @@ export function createTelegram({
       return;
     }
 
-    insertInboxItem({
+    const inboxId = insertInboxItem({
       userId,
       source: sourceName(first),
       text,
@@ -446,6 +496,9 @@ export function createTelegram({
       tgMessageId: first.message_id,
       mediaGroupId,
     });
+
+    // Kick off AI enrichment in the background (no-op unless configured).
+    void enrichItem(inboxId, { text, attachments });
 
     const n = attachments.length;
     let reply;
@@ -638,5 +691,6 @@ export function createTelegram({
     handleUpdate,
     linkWithCode,
     saveToInbox,
+    enrichItem,
   };
 }
