@@ -1,8 +1,8 @@
-/** Export selected traits (and, optionally, images inside them) as a single PNG.
- *  Layout is a grid: one row per trait, whose first tile is the trait's cover
- *  (with the title overlaid) followed by any selected images from that trait.
- *  Rendered with the Canvas 2D API — no extra dependencies. Cover/attachment
- *  images are same-origin, so the canvas stays untainted and exportable. */
+/** Export selected traits — including nested sub-traits — as a single PNG.
+ *  Layout is an indented outline: each included trait shows its cover, title,
+ *  the FULL description text, and any selected images; children are indented
+ *  under their parent. Rendered with the Canvas 2D API (no dependencies);
+ *  images are same-origin so the canvas stays untainted and exportable. */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
@@ -31,38 +31,32 @@ function roundRect(
   ctx.roundRect(x, y, w, h, r);
 }
 
-function wrapLines(
+// Wrap text to a width, keeping ALL of it (honours explicit newlines). No cap.
+function wrapFull(
   ctx: CanvasRenderingContext2D,
   text: string,
   maxWidth: number,
-  maxLines: number,
 ): string[] {
-  const words = text.split(/\s+/).filter(Boolean);
-  const lines: string[] = [];
-  let line = "";
-  for (const word of words) {
-    const test = line ? `${line} ${word}` : word;
-    if (ctx.measureText(test).width > maxWidth && line) {
-      lines.push(line);
-      line = word;
-      if (lines.length === maxLines) break;
-    } else {
-      line = test;
+  const out: string[] = [];
+  for (const para of text.split(/\n/)) {
+    if (para.trim() === "") {
+      out.push("");
+      continue;
     }
-  }
-  if (lines.length < maxLines && line) lines.push(line);
-  // Ellipsize the last line if we ran out of room.
-  if (lines.length === maxLines) {
-    let last = lines[maxLines - 1];
-    const consumed = lines.join(" ");
-    if (consumed.length < text.length) {
-      while (last && ctx.measureText(`${last}…`).width > maxWidth) {
-        last = last.slice(0, -1);
+    const words = para.split(/\s+/).filter(Boolean);
+    let line = "";
+    for (const word of words) {
+      const test = line ? `${line} ${word}` : word;
+      if (ctx.measureText(test).width > maxWidth && line) {
+        out.push(line);
+        line = word;
+      } else {
+        line = test;
       }
-      lines[maxLines - 1] = `${last}…`;
     }
+    if (line) out.push(line);
   }
-  return lines;
+  return out;
 }
 
 // The image attachments of a trait, excluding whatever is already its cover.
@@ -70,6 +64,20 @@ function extraImages(t: Trait): TraitAttachment[] {
   return t.attachments.filter(
     (a) => a.type.startsWith("image/") && a.id !== t.cover?.id,
   );
+}
+
+// Flatten the trait tree into an in-order list with depth, so nested traits are
+// selectable and exportable.
+function flattenTraits(
+  traits: Trait[],
+  depth = 0,
+): { trait: Trait; depth: number }[] {
+  const out: { trait: Trait; depth: number }[] = [];
+  for (const t of traits) {
+    out.push({ trait: t, depth });
+    if (t.children.length) out.push(...flattenTraits(t.children, depth + 1));
+  }
+  return out;
 }
 
 export function TraitExportModal({
@@ -81,11 +89,12 @@ export function TraitExportModal({
   nodeName: string;
   onClose: () => void;
 }) {
-  // Which traits are included (their cover + title lead each row).
+  const flat = useMemo(() => flattenTraits(traits), [traits]);
+  // Which traits are included (including nested ones).
   const [included, setIncluded] = useState<Set<Id>>(
-    () => new Set(traits.map((t) => t.id)),
+    () => new Set(flat.map((x) => x.trait.id)),
   );
-  // Which extra images (by attachment id) are added to their trait's row.
+  // Which extra images (by attachment id) are added to their trait.
   const [selectedImgs, setSelectedImgs] = useState<Set<Id>>(() => new Set());
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [rendering, setRendering] = useState(false);
@@ -93,8 +102,8 @@ export function TraitExportModal({
   const imgCache = useRef<Map<string, HTMLImageElement | null>>(new Map());
 
   const allImageIds = useMemo(
-    () => traits.flatMap((t) => extraImages(t).map((a) => a.id)),
-    [traits],
+    () => flat.flatMap((x) => extraImages(x.trait).map((a) => a.id)),
+    [flat],
   );
 
   const toggleTrait = (id: Id) =>
@@ -114,7 +123,7 @@ export function TraitExportModal({
     });
 
   const selectAll = () => {
-    setIncluded(new Set(traits.map((t) => t.id)));
+    setIncluded(new Set(flat.map((x) => x.trait.id)));
     setSelectedImgs(new Set(allImageIds));
   };
   const deselectAll = () => {
@@ -129,58 +138,98 @@ export function TraitExportModal({
     return img;
   }, []);
 
-  // Build each included trait's row of image tiles (cover first, then extras).
-  const rowsFor = useCallback(() => {
-    return traits
-      .filter((t) => included.has(t.id))
-      .map((t) => {
-        const chosen = extraImages(t).filter((a) => selectedImgs.has(a.id));
-        const tiles: (TraitAttachment | null)[] = [];
-        if (t.cover) tiles.push(t.cover);
+  // Build the ordered list of blocks to draw: every included trait (nested ones
+  // too), with its depth and the image tiles to show (cover first, then extras).
+  const buildBlocks = useCallback(() => {
+    return flat
+      .filter((x) => included.has(x.trait.id))
+      .map((x) => {
+        const chosen = extraImages(x.trait).filter((a) =>
+          selectedImgs.has(a.id),
+        );
+        const tiles: TraitAttachment[] = [];
+        if (x.trait.cover) tiles.push(x.trait.cover);
         for (const a of chosen) tiles.push(a);
-        if (tiles.length === 0) tiles.push(null); // placeholder lead
-        return { trait: t, tiles };
+        return { trait: x.trait, depth: x.depth, tiles };
       });
-  }, [traits, included, selectedImgs]);
+  }, [flat, included, selectedImgs]);
 
   const render = useCallback(async () => {
-    const rows = rowsFor();
+    const blocks = buildBlocks();
     const canvas = canvasRef.current ?? document.createElement("canvas");
     canvasRef.current = canvas;
     const dpr = 2;
-    const P = 20;
-    const T = 150; // tile size
-    const G = 10; // gap between tiles
-    const rowGap = 16;
-    const headerH = 56;
+    const W = 660;
+    const P = 24;
+    const INDENT = 22;
+    const CT = 60; // cover thumbnail (header)
+    const IMG = 96; // gallery thumbnail
+    const GAP = 8;
+    const BLOCK_GAP = 18;
+    const TITLE_LH = 22;
+    const DESC_LH = 18;
+    const headerH0 = 54;
 
-    // Preload every tile image.
+    // Preload every image used.
     const ids = new Set<string>();
-    for (const r of rows) for (const tile of r.tiles) if (tile) ids.add(tile.id);
+    for (const b of blocks) for (const t of b.tiles) ids.add(t.id);
     const loaded = new Map<string, HTMLImageElement | null>();
     await Promise.all(
       [...ids].map(async (id) => loaded.set(id, await cachedImage(id))),
     );
 
-    const rowWidths = rows.map(
-      (r) => r.tiles.length * T + (r.tiles.length - 1) * G,
-    );
-    const contentW = Math.max(260, ...(rowWidths.length ? rowWidths : [260]));
-    const W = P * 2 + contentW;
-    const H =
-      P * 2 +
-      headerH +
-      (rows.length ? rows.length * T + (rows.length - 1) * rowGap : 40);
-
-    canvas.width = W * dpr;
-    canvas.height = H * dpr;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+
+    // Measure pass (text metrics are independent of canvas size).
+    const measured = blocks.map((b) => {
+      const x = P + b.depth * INDENT;
+      const contentW = W - x - P;
+      const lead = b.tiles[0] ?? null;
+      const textX = x + (lead ? CT + 12 : 0);
+      const textW = W - textX - P;
+      ctx.font = `600 17px ${FONT}`;
+      const titleLines = wrapFull(ctx, b.trait.name || "Untitled", textW);
+      const headerH = Math.max(lead ? CT : 0, titleLines.length * TITLE_LH);
+      const desc = (b.trait.description ?? "").trim();
+      ctx.font = `400 13px ${FONT}`;
+      const descLines = desc ? wrapFull(ctx, desc, contentW) : [];
+      const descH = descLines.length * DESC_LH;
+      const gallery = b.tiles.slice(1);
+      const perRow = Math.max(1, Math.floor((contentW + GAP) / (IMG + GAP)));
+      const gRows = gallery.length ? Math.ceil(gallery.length / perRow) : 0;
+      const galleryH = gRows ? gRows * IMG + (gRows - 1) * GAP : 0;
+      const height =
+        headerH + (descH ? 8 + descH : 0) + (galleryH ? 10 + galleryH : 0);
+      return {
+        ...b,
+        x,
+        contentW,
+        lead,
+        textX,
+        titleLines,
+        headerH,
+        descLines,
+        gallery,
+        perRow,
+        height,
+      };
+    });
+
+    const totalH =
+      P +
+      headerH0 +
+      (measured.length
+        ? measured.reduce((s, m) => s + m.height + BLOCK_GAP, 0)
+        : 20);
+
+    canvas.width = W * dpr;
+    canvas.height = totalH * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     // Background
     ctx.fillStyle = "#0f1115";
-    ctx.fillRect(0, 0, W, H);
+    ctx.fillRect(0, 0, W, totalH);
 
     // Header
     ctx.textAlign = "left";
@@ -190,88 +239,107 @@ export function TraitExportModal({
     ctx.fillText(nodeName || "Traits", P, P + 24);
     ctx.fillStyle = "#8a8f98";
     ctx.font = `400 13px ${FONT}`;
-    const imgCount = rows.reduce(
-      (n, r) => n + r.tiles.filter(Boolean).length,
-      0,
-    );
+    const imgCount = measured.reduce((n, m) => n + m.tiles.length, 0);
     ctx.fillText(
-      `${rows.length} trait${rows.length === 1 ? "" : "s"} · ${imgCount} image${
+      `${measured.length} trait${measured.length === 1 ? "" : "s"} · ${imgCount} image${
         imgCount === 1 ? "" : "s"
       }`,
       P,
       P + 46,
     );
 
-    if (rows.length === 0) {
+    if (measured.length === 0) {
       setPreviewUrl(canvas.toDataURL("image/png"));
       return;
     }
 
-    const drawTile = (
-      ref: TraitAttachment | null,
-      x: number,
-      y: number,
-      withTitle: string | null,
-      done: boolean,
-    ) => {
-      const img = ref ? loaded.get(ref.id) : null;
+    const drawThumb = (ref: TraitAttachment, x: number, y: number, size: number) => {
+      const img = loaded.get(ref.id);
       ctx.save();
-      roundRect(ctx, x, y, T, T, 12);
+      roundRect(ctx, x, y, size, size, 10);
       ctx.clip();
       if (img && img.width > 0) {
-        const scale = Math.max(T / img.width, T / img.height);
+        const scale = Math.max(size / img.width, size / img.height);
         const w = img.width * scale;
         const h = img.height * scale;
-        ctx.drawImage(img, x + (T - w) / 2, y + (T - h) / 2, w, h);
+        ctx.drawImage(img, x + (size - w) / 2, y + (size - h) / 2, w, h);
       } else {
         ctx.fillStyle = "#2a2b31";
-        ctx.fillRect(x, y, T, T);
-      }
-      if (withTitle !== null) {
-        // Gradient + title overlay on the lead (cover) tile.
-        const grad = ctx.createLinearGradient(0, y + T * 0.4, 0, y + T);
-        grad.addColorStop(0, "rgba(0,0,0,0)");
-        grad.addColorStop(1, "rgba(0,0,0,0.85)");
-        ctx.fillStyle = grad;
-        ctx.fillRect(x, y, T, T);
-        ctx.fillStyle = "#ffffff";
-        ctx.font = `600 15px ${FONT}`;
-        const lines = wrapLines(ctx, withTitle, T - 16, 2);
-        let ty = y + T - 12 - (lines.length - 1) * 18;
-        for (const ln of lines) {
-          ctx.fillText(ln, x + 8, ty);
-          if (done) {
-            const w = ctx.measureText(ln).width;
-            ctx.strokeStyle = "#ffffff";
-            ctx.lineWidth = 1.5;
-            ctx.beginPath();
-            ctx.moveTo(x + 8, ty - 5);
-            ctx.lineTo(x + 8 + w, ty - 5);
-            ctx.stroke();
-          }
-          ty += 18;
-        }
+        ctx.fillRect(x, y, size, size);
       }
       ctx.restore();
-      // Subtle border
       ctx.strokeStyle = "rgba(255,255,255,0.08)";
       ctx.lineWidth = 1;
-      roundRect(ctx, x + 0.5, y + 0.5, T - 1, T - 1, 12);
+      roundRect(ctx, x + 0.5, y + 0.5, size - 1, size - 1, 10);
       ctx.stroke();
     };
 
-    let y = P + headerH;
-    for (const r of rows) {
-      let x = P;
-      r.tiles.forEach((tile, i) => {
-        drawTile(tile, x, y, i === 0 ? r.trait.name : null, r.trait.done);
-        x += T + G;
-      });
-      y += T + rowGap;
+    const strike = (x: number, y: number, w: number) => {
+      ctx.strokeStyle = "#9ca3af";
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      ctx.moveTo(x, y - 5);
+      ctx.lineTo(x + w, y - 5);
+      ctx.stroke();
+    };
+
+    let y = P + headerH0;
+    for (const m of measured) {
+      // Depth guide line for nested traits.
+      if (m.depth > 0) {
+        ctx.strokeStyle = "rgba(255,255,255,0.10)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(m.x - 11, y);
+        ctx.lineTo(m.x - 11, y + m.height);
+        ctx.stroke();
+      }
+
+      // Header: cover thumbnail + title.
+      if (m.lead) drawThumb(m.lead, m.x, y, CT);
+      ctx.fillStyle = m.trait.done ? "#9ca3af" : "#f5f5f5";
+      ctx.font = `600 17px ${FONT}`;
+      let ty = y + 16;
+      for (const ln of m.titleLines) {
+        ctx.fillText(ln, m.textX, ty);
+        if (m.trait.done) strike(m.textX, ty, ctx.measureText(ln).width);
+        ty += TITLE_LH;
+      }
+
+      let cy = y + m.headerH;
+
+      // Full description text.
+      if (m.descLines.length) {
+        cy += 8;
+        ctx.fillStyle = "#c9ccd1";
+        ctx.font = `400 13px ${FONT}`;
+        for (const ln of m.descLines) {
+          ctx.fillText(ln, m.x, cy + 13);
+          cy += DESC_LH;
+        }
+      }
+
+      // Gallery of the trait's selected images.
+      if (m.gallery.length) {
+        cy += 10;
+        let gx = m.x;
+        let gy = cy;
+        m.gallery.forEach((tile, i) => {
+          drawThumb(tile, gx, gy, IMG);
+          if ((i + 1) % m.perRow === 0) {
+            gx = m.x;
+            gy += IMG + GAP;
+          } else {
+            gx += IMG + GAP;
+          }
+        });
+      }
+
+      y += m.height + BLOCK_GAP;
     }
 
     setPreviewUrl(canvas.toDataURL("image/png"));
-  }, [rowsFor, nodeName, cachedImage]);
+  }, [buildBlocks, nodeName, cachedImage]);
 
   useEffect(() => {
     setRendering(true);
@@ -334,13 +402,14 @@ export function TraitExportModal({
             </button>
           </div>
           <ul className="flex flex-1 flex-col gap-1 overflow-y-auto pr-1">
-            {traits.map((t) => {
+            {flat.map(({ trait: t, depth }) => {
               const extras = extraImages(t);
               const on = included.has(t.id);
               return (
                 <li
                   key={t.id}
                   className="rounded border border-neutral-800 bg-neutral-900/60 p-1.5"
+                  style={{ marginLeft: depth * 14 }}
                 >
                   <label className="flex cursor-pointer items-center gap-2 text-xs text-neutral-200">
                     <input
