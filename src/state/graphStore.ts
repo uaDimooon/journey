@@ -3,14 +3,20 @@
  *  changes are synced back. Imports domain logic only. */
 
 import { create } from "zustand";
-import type { Graph, GraphNode, Id, TraitAttachment, Vec2 } from "../domain/types";
+import type { Graph, GraphNode, Id, Trait, TraitAttachment, Vec2 } from "../domain/types";
 import {
   createGoal,
   createInitialGraph,
+  findTraitInForest,
+  insertTraitRelative,
   isPositionOccupied,
+  isTraitInSubtree,
   makeId,
   normalizeGraph,
+  nudgeTraitInForest,
+  removeTraitFromForest,
   tryCreateEdge,
+  updateTraitInForest,
 } from "../domain/graph";
 
 interface GraphState {
@@ -33,8 +39,8 @@ interface GraphState {
   linkNodes: (from: Id, to: Id) => string | null;
   /** Remove the link (edge) from `from` to `to`, if present. */
   unlink: (from: Id, to: Id) => void;
-  /** Add a trait (by name) to a node. */
-  addTrait: (id: Id, name: string) => void;
+  /** Add a trait (by name) to a node, optionally under a parent trait. */
+  addTrait: (id: Id, name: string, parentId?: Id | null) => void;
   /** Add a fully-formed trait (used for imports). Returns the new trait id, or null. */
   addTraitDetailed: (
     id: Id,
@@ -44,6 +50,7 @@ interface GraphState {
       attachments?: TraitAttachment[];
       cover?: TraitAttachment | null;
     },
+    parentId?: Id | null,
   ) => Id | null;
   removeTrait: (id: Id, traitId: Id) => void;
   renameTrait: (id: Id, traitId: Id, name: string) => void;  /** Set a trait's description. */
@@ -55,8 +62,17 @@ interface GraphState {
   /** Set or clear a trait's square cover image. */
   setTraitCover: (id: Id, traitId: Id, cover: TraitAttachment | null) => void;
   toggleTrait: (id: Id, traitId: Id) => void;
-  /** Reorder a node's traits by moving one from `fromIndex` to `toIndex`. */
-  reorderTraits: (id: Id, fromIndex: number, toIndex: number) => void;
+  /** Move a trait one step within its sibling group (up/down buttons). */
+  nudgeTrait: (id: Id, traitId: Id, delta: number) => void;
+  /** Move a trait relative to another (before/after as sibling, or inside as child). */
+  moveTraitTo: (
+    id: Id,
+    dragId: Id,
+    targetId: Id,
+    position: "before" | "after" | "inside",
+  ) => void;
+  /** Move a trait to the end of the node's top-level list (out of any subcategory). */
+  moveTraitToRoot: (id: Id, traitId: Id) => void;
   /** Move a whole trait from one node to another (reassign). */
   moveTrait: (fromNodeId: Id, traitId: Id, toNodeId: Id) => void;
   /** Move an attachment reference from one trait to another (possibly across nodes). */
@@ -176,43 +192,58 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
           return { graph: { ...s.graph, edges } };
         }),
 
-      addTrait: (id, name) =>
+      addTrait: (id, name, parentId = null) =>
         set((s) => {
           const node = s.graph.nodes[id];
           const t = name.trim();
-          if (!node || !t || node.traits.some((tr) => tr.name === t)) return s;
-          const trait = { id: makeId("trait"), name: t, done: false, description: "", attachments: [] };
+          if (!node || !t) return s;
+          const trait: Trait = {
+            id: makeId("trait"),
+            name: t,
+            done: false,
+            description: "",
+            attachments: [],
+            cover: null,
+            children: [],
+          };
+          const traits = parentId
+            ? updateTraitInForest(node.traits, parentId, (p) => ({
+                ...p,
+                children: [...p.children, trait],
+              }))
+            : [...node.traits, trait];
           return {
             graph: {
               ...s.graph,
-              nodes: {
-                ...s.graph.nodes,
-                [id]: { ...node, traits: [...node.traits, trait] },
-              },
+              nodes: { ...s.graph.nodes, [id]: { ...node, traits } },
             },
           };
         }),
 
-      addTraitDetailed: (id, t) => {
+      addTraitDetailed: (id, t, parentId = null) => {
         if (!get().graph.nodes[id]) return null;
-        const trait = {
+        const trait: Trait = {
           id: makeId("trait"),
           name: (t.name ?? "").trim() || "Untitled",
           done: false,
           description: t.description ?? "",
           attachments: t.attachments ?? [],
           cover: t.cover ?? null,
+          children: [],
         };
         set((s) => {
           const node = s.graph.nodes[id];
           if (!node) return s;
+          const traits = parentId
+            ? updateTraitInForest(node.traits, parentId, (p) => ({
+                ...p,
+                children: [...p.children, trait],
+              }))
+            : [...node.traits, trait];
           return {
             graph: {
               ...s.graph,
-              nodes: {
-                ...s.graph.nodes,
-                [id]: { ...node, traits: [...node.traits, trait] },
-              },
+              nodes: { ...s.graph.nodes, [id]: { ...node, traits } },
             },
           };
         });
@@ -223,16 +254,11 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
         set((s) => {
           const node = s.graph.nodes[id];
           if (!node) return s;
+          const { traits } = removeTraitFromForest(node.traits, traitId);
           return {
             graph: {
               ...s.graph,
-              nodes: {
-                ...s.graph.nodes,
-                [id]: {
-                  ...node,
-                  traits: node.traits.filter((t) => t.id !== traitId),
-                },
-              },
+              nodes: { ...s.graph.nodes, [id]: { ...node, traits } },
             },
           };
         }),
@@ -242,18 +268,14 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
           const node = s.graph.nodes[id];
           const t = name.trim();
           if (!node || !t) return s;
+          const traits = updateTraitInForest(node.traits, traitId, (tr) => ({
+            ...tr,
+            name: t,
+          }));
           return {
             graph: {
               ...s.graph,
-              nodes: {
-                ...s.graph.nodes,
-                [id]: {
-                  ...node,
-                  traits: node.traits.map((tr) =>
-                    tr.id === traitId ? { ...tr, name: t } : tr,
-                  ),
-                },
-              },
+              nodes: { ...s.graph.nodes, [id]: { ...node, traits } },
             },
           };
         }),
@@ -262,18 +284,14 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
         set((s) => {
           const node = s.graph.nodes[id];
           if (!node) return s;
+          const traits = updateTraitInForest(node.traits, traitId, (tr) => ({
+            ...tr,
+            description,
+          }));
           return {
             graph: {
               ...s.graph,
-              nodes: {
-                ...s.graph.nodes,
-                [id]: {
-                  ...node,
-                  traits: node.traits.map((tr) =>
-                    tr.id === traitId ? { ...tr, description } : tr,
-                  ),
-                },
-              },
+              nodes: { ...s.graph.nodes, [id]: { ...node, traits } },
             },
           };
         }),
@@ -282,20 +300,14 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
         set((s) => {
           const node = s.graph.nodes[id];
           if (!node) return s;
+          const traits = updateTraitInForest(node.traits, traitId, (tr) => ({
+            ...tr,
+            attachments: [...tr.attachments, attachment],
+          }));
           return {
             graph: {
               ...s.graph,
-              nodes: {
-                ...s.graph.nodes,
-                [id]: {
-                  ...node,
-                  traits: node.traits.map((tr) =>
-                    tr.id === traitId
-                      ? { ...tr, attachments: [...tr.attachments, attachment] }
-                      : tr,
-                  ),
-                },
-              },
+              nodes: { ...s.graph.nodes, [id]: { ...node, traits } },
             },
           };
         }),
@@ -304,25 +316,14 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
         set((s) => {
           const node = s.graph.nodes[id];
           if (!node) return s;
+          const traits = updateTraitInForest(node.traits, traitId, (tr) => ({
+            ...tr,
+            attachments: tr.attachments.filter((a) => a.id !== attachmentId),
+          }));
           return {
             graph: {
               ...s.graph,
-              nodes: {
-                ...s.graph.nodes,
-                [id]: {
-                  ...node,
-                  traits: node.traits.map((tr) =>
-                    tr.id === traitId
-                      ? {
-                          ...tr,
-                          attachments: tr.attachments.filter(
-                            (a) => a.id !== attachmentId,
-                          ),
-                        }
-                      : tr,
-                  ),
-                },
-              },
+              nodes: { ...s.graph.nodes, [id]: { ...node, traits } },
             },
           };
         }),
@@ -331,18 +332,14 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
         set((s) => {
           const node = s.graph.nodes[id];
           if (!node) return s;
+          const traits = updateTraitInForest(node.traits, traitId, (tr) => ({
+            ...tr,
+            cover,
+          }));
           return {
             graph: {
               ...s.graph,
-              nodes: {
-                ...s.graph.nodes,
-                [id]: {
-                  ...node,
-                  traits: node.traits.map((tr) =>
-                    tr.id === traitId ? { ...tr, cover } : tr,
-                  ),
-                },
-              },
+              nodes: { ...s.graph.nodes, [id]: { ...node, traits } },
             },
           };
         }),
@@ -351,42 +348,69 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
         set((s) => {
           const node = s.graph.nodes[id];
           if (!node) return s;
+          const traits = updateTraitInForest(node.traits, traitId, (tr) => ({
+            ...tr,
+            done: !tr.done,
+          }));
+          return {
+            graph: {
+              ...s.graph,
+              nodes: { ...s.graph.nodes, [id]: { ...node, traits } },
+            },
+          };
+        }),
+
+      nudgeTrait: (id, traitId, delta) =>
+        set((s) => {
+          const node = s.graph.nodes[id];
+          if (!node) return s;
+          const traits = nudgeTraitInForest(node.traits, traitId, delta);
+          if (traits === node.traits) return s;
+          return {
+            graph: {
+              ...s.graph,
+              nodes: { ...s.graph.nodes, [id]: { ...node, traits } },
+            },
+          };
+        }),
+
+      moveTraitTo: (id, dragId, targetId, position) =>
+        set((s) => {
+          const node = s.graph.nodes[id];
+          if (!node || dragId === targetId) return s;
+          // Never drop a trait into its own subtree.
+          if (isTraitInSubtree(node.traits, dragId, targetId)) return s;
+          const { traits: without, removed } = removeTraitFromForest(
+            node.traits,
+            dragId,
+          );
+          if (!removed) return s;
+          const traits = insertTraitRelative(without, targetId, removed, position);
+          return {
+            graph: {
+              ...s.graph,
+              nodes: { ...s.graph.nodes, [id]: { ...node, traits } },
+            },
+          };
+        }),
+
+      moveTraitToRoot: (id, traitId) =>
+        set((s) => {
+          const node = s.graph.nodes[id];
+          if (!node) return s;
+          if (node.traits.some((t) => t.id === traitId)) return s; // already root
+          const { traits: without, removed } = removeTraitFromForest(
+            node.traits,
+            traitId,
+          );
+          if (!removed) return s;
           return {
             graph: {
               ...s.graph,
               nodes: {
                 ...s.graph.nodes,
-                [id]: {
-                  ...node,
-                  traits: node.traits.map((tr) =>
-                    tr.id === traitId ? { ...tr, done: !tr.done } : tr,
-                  ),
-                },
+                [id]: { ...node, traits: [...without, removed] },
               },
-            },
-          };
-        }),
-
-      reorderTraits: (id, fromIndex, toIndex) =>
-        set((s) => {
-          const node = s.graph.nodes[id];
-          if (!node) return s;
-          const traits = [...node.traits];
-          if (
-            fromIndex < 0 ||
-            fromIndex >= traits.length ||
-            toIndex < 0 ||
-            toIndex >= traits.length ||
-            fromIndex === toIndex
-          ) {
-            return s;
-          }
-          const [moved] = traits.splice(fromIndex, 1);
-          traits.splice(toIndex, 0, moved);
-          return {
-            graph: {
-              ...s.graph,
-              nodes: { ...s.graph.nodes, [id]: { ...node, traits } },
             },
           };
         }),
@@ -397,18 +421,18 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
           const from = s.graph.nodes[fromNodeId];
           const to = s.graph.nodes[toNodeId];
           if (!from || !to) return s;
-          const trait = from.traits.find((t) => t.id === traitId);
-          if (!trait) return s;
+          const { traits: fromTraits, removed } = removeTraitFromForest(
+            from.traits,
+            traitId,
+          );
+          if (!removed) return s;
           return {
             graph: {
               ...s.graph,
               nodes: {
                 ...s.graph.nodes,
-                [fromNodeId]: {
-                  ...from,
-                  traits: from.traits.filter((t) => t.id !== traitId),
-                },
-                [toNodeId]: { ...to, traits: [...to.traits, trait] },
+                [fromNodeId]: { ...from, traits: fromTraits },
+                [toNodeId]: { ...to, traits: [...to.traits, removed] },
               },
             },
           };
@@ -420,28 +444,23 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
           const from = s.graph.nodes[fromNodeId];
           const to = s.graph.nodes[toNodeId];
           if (!from || !to) return s;
-          const fromTrait = from.traits.find((t) => t.id === fromTraitId);
-          const toTrait = to.traits.find((t) => t.id === toTraitId);
+          const fromTrait = findTraitInForest(from.traits, fromTraitId);
+          const toTrait = findTraitInForest(to.traits, toTraitId);
           if (!fromTrait || !toTrait) return s;
           const att = fromTrait.attachments.find((a) => a.id === attachmentId);
           if (!att) return s;
           if (toTrait.attachments.some((a) => a.id === attachmentId)) return s;
 
-          const stripFrom = (traits: typeof from.traits) =>
-            traits.map((t) =>
-              t.id === fromTraitId
-                ? {
-                    ...t,
-                    attachments: t.attachments.filter((a) => a.id !== attachmentId),
-                  }
-                : t,
-            );
-          const addTo = (traits: typeof to.traits) =>
-            traits.map((t) =>
-              t.id === toTraitId
-                ? { ...t, attachments: [...t.attachments, att] }
-                : t,
-            );
+          const strip = (traits: Trait[]) =>
+            updateTraitInForest(traits, fromTraitId, (t) => ({
+              ...t,
+              attachments: t.attachments.filter((a) => a.id !== attachmentId),
+            }));
+          const add = (traits: Trait[]) =>
+            updateTraitInForest(traits, toTraitId, (t) => ({
+              ...t,
+              attachments: [...t.attachments, att],
+            }));
 
           if (fromNodeId === toNodeId) {
             return {
@@ -449,7 +468,7 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
                 ...s.graph,
                 nodes: {
                   ...s.graph.nodes,
-                  [fromNodeId]: { ...from, traits: addTo(stripFrom(from.traits)) },
+                  [fromNodeId]: { ...from, traits: add(strip(from.traits)) },
                 },
               },
             };
@@ -459,8 +478,8 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
               ...s.graph,
               nodes: {
                 ...s.graph.nodes,
-                [fromNodeId]: { ...from, traits: stripFrom(from.traits) },
-                [toNodeId]: { ...to, traits: addTo(to.traits) },
+                [fromNodeId]: { ...from, traits: strip(from.traits) },
+                [toNodeId]: { ...to, traits: add(to.traits) },
               },
             },
           };
@@ -470,33 +489,27 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
         set((s) => {
           const node = s.graph.nodes[id];
           if (!node) return s;
+          const traits = updateTraitInForest(node.traits, traitId, (tr) => {
+            const existingIds = new Set(tr.attachments.map((a) => a.id));
+            const added = (patch.attachments ?? []).filter(
+              (a) => !existingIds.has(a.id),
+            );
+            const description = patch.description?.trim()
+              ? tr.description
+                ? `${tr.description}\n\n${patch.description.trim()}`
+                : patch.description.trim()
+              : tr.description;
+            return {
+              ...tr,
+              description,
+              attachments: [...tr.attachments, ...added],
+              cover: tr.cover ?? patch.cover ?? null,
+            };
+          });
           return {
             graph: {
               ...s.graph,
-              nodes: {
-                ...s.graph.nodes,
-                [id]: {
-                  ...node,
-                  traits: node.traits.map((tr) => {
-                    if (tr.id !== traitId) return tr;
-                    const existingIds = new Set(tr.attachments.map((a) => a.id));
-                    const added = (patch.attachments ?? []).filter(
-                      (a) => !existingIds.has(a.id),
-                    );
-                    const description = patch.description?.trim()
-                      ? tr.description
-                        ? `${tr.description}\n\n${patch.description.trim()}`
-                        : patch.description.trim()
-                      : tr.description;
-                    return {
-                      ...tr,
-                      description,
-                      attachments: [...tr.attachments, ...added],
-                      cover: tr.cover ?? patch.cover ?? null,
-                    };
-                  }),
-                },
-              },
+              nodes: { ...s.graph.nodes, [id]: { ...node, traits } },
             },
           };
         }),

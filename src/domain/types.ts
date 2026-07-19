@@ -31,6 +31,8 @@ export interface Trait {
   attachments: TraitAttachment[];
   /** Optional square cover image displayed behind the trait's title. */
   cover?: TraitAttachment | null;
+  /** Nested sub-traits (arbitrary depth). Empty for a leaf trait. */
+  children: Trait[];
 }
 
 export interface GraphNode {

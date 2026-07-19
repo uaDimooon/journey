@@ -13,7 +13,15 @@ export function makeId(prefix = "n"): Id {
 /** Coerce a raw trait (legacy string or object) into a Trait. */
 export function normalizeTrait(raw: unknown): Trait {
   if (typeof raw === "string") {
-    return { id: makeId("trait"), name: raw, done: false, description: "", attachments: [], cover: null };
+    return {
+      id: makeId("trait"),
+      name: raw,
+      done: false,
+      description: "",
+      attachments: [],
+      cover: null,
+      children: [],
+    };
   }
   const t = (raw ?? {}) as Partial<Trait>;
   const rawCover = t.cover as Partial<TraitAttachment> | null | undefined;
@@ -28,7 +36,120 @@ export function normalizeTrait(raw: unknown): Trait {
     description: typeof t.description === "string" ? t.description : "",
     attachments: Array.isArray(t.attachments) ? t.attachments : [],
     cover,
+    children: Array.isArray(t.children) ? t.children.map(normalizeTrait) : [],
   };
+}
+
+// --- Trait tree helpers (traits nest to arbitrary depth) --------------------
+
+/** Replace the trait with `id` (anywhere in the forest) using `fn`. */
+export function updateTraitInForest(
+  traits: Trait[],
+  id: Id,
+  fn: (t: Trait) => Trait,
+): Trait[] {
+  return traits.map((t) => {
+    if (t.id === id) return fn(t);
+    if (t.children.length) {
+      const children = updateTraitInForest(t.children, id, fn);
+      if (children !== t.children) return { ...t, children };
+    }
+    return t;
+  });
+}
+
+/** Find a trait by id anywhere in the forest. */
+export function findTraitInForest(traits: Trait[], id: Id): Trait | null {
+  for (const t of traits) {
+    if (t.id === id) return t;
+    const found = findTraitInForest(t.children, id);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** Remove a trait by id; returns the pruned forest and the removed subtree. */
+export function removeTraitFromForest(
+  traits: Trait[],
+  id: Id,
+): { traits: Trait[]; removed: Trait | null } {
+  let removed: Trait | null = null;
+  const walk = (list: Trait[]): Trait[] => {
+    const out: Trait[] = [];
+    for (const t of list) {
+      if (t.id === id) {
+        removed = t;
+        continue;
+      }
+      if (t.children.length) {
+        const children = walk(t.children);
+        out.push(children === t.children ? t : { ...t, children });
+      } else {
+        out.push(t);
+      }
+    }
+    return out;
+  };
+  const next = walk(traits);
+  return { traits: next, removed };
+}
+
+/** True if `id` is inside `ancestorId`'s subtree (or is itself). */
+export function isTraitInSubtree(traits: Trait[], ancestorId: Id, id: Id): boolean {
+  if (ancestorId === id) return true;
+  const anc = findTraitInForest(traits, ancestorId);
+  return anc ? Boolean(findTraitInForest(anc.children, id)) : false;
+}
+
+/** Insert `trait` before/after `targetId`, or as its last child ("inside"). */
+export function insertTraitRelative(
+  traits: Trait[],
+  targetId: Id,
+  trait: Trait,
+  position: "before" | "after" | "inside",
+): Trait[] {
+  if (position !== "inside") {
+    const idx = traits.findIndex((t) => t.id === targetId);
+    if (idx !== -1) {
+      const copy = [...traits];
+      copy.splice(position === "before" ? idx : idx + 1, 0, trait);
+      return copy;
+    }
+  }
+  return traits.map((t) => {
+    if (t.id === targetId && position === "inside") {
+      return { ...t, children: [...t.children, trait] };
+    }
+    if (t.children.length) {
+      const children = insertTraitRelative(t.children, targetId, trait, position);
+      if (children !== t.children) return { ...t, children };
+    }
+    return t;
+  });
+}
+
+/** Move a trait within a sibling group by one step (for the up/down buttons). */
+export function nudgeTraitInForest(
+  traits: Trait[],
+  id: Id,
+  delta: number,
+): Trait[] {
+  const idx = traits.findIndex((t) => t.id === id);
+  if (idx !== -1) {
+    const j = idx + delta;
+    if (j < 0 || j >= traits.length) return traits;
+    const copy = [...traits];
+    const [moved] = copy.splice(idx, 1);
+    copy.splice(j, 0, moved);
+    return copy;
+  }
+  return traits.map((t) => {
+    if (t.children.length) {
+      const children = nudgeTraitInForest(t.children, id, delta);
+      if (children !== t.children) return { ...t, children };
+    }
+    return t;
+  });
 }
 
 /** Ensure a node has a status and structured traits (handles legacy data). */
