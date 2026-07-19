@@ -14,7 +14,7 @@ import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
 import { createTelegram } from "./telegram.mjs";
-
+import { createAI } from "./ai.mjs";
 // Load environment variables from a local .env file if present (gitignored).
 try {
   process.loadEnvFile();
@@ -119,6 +119,13 @@ db.exec(
     .map((c) => c.name);
   if (!cols.includes("media_group_id")) {
     db.exec("ALTER TABLE telegram_inbox ADD COLUMN media_group_id TEXT");
+  }
+  // AI enrichment columns (title/description/steps suggested from caption+transcript).
+  if (!cols.includes("ai_status")) {
+    db.exec("ALTER TABLE telegram_inbox ADD COLUMN ai_status TEXT DEFAULT 'none'");
+    db.exec("ALTER TABLE telegram_inbox ADD COLUMN ai_title TEXT");
+    db.exec("ALTER TABLE telegram_inbox ADD COLUMN ai_description TEXT");
+    db.exec("ALTER TABLE telegram_inbox ADD COLUMN ai_steps TEXT");
   }
 }
 // A single inbox item can carry several attachments (e.g. a forwarded album).
@@ -236,12 +243,18 @@ app.use(cookieParser());
 const telegramToken = isTest
   ? process.env.TELEGRAM_TEST_BOT_TOKEN
   : process.env.TELEGRAM_BOT_TOKEN;
+// Optional AI enrichment (OpenAI). Disabled cleanly when the key is unset.
+const ai = createAI({
+  apiKey: process.env.OPENAI_API_KEY ?? null,
+  model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+});
 const telegram = createTelegram({
   db,
   filesDir,
   uid,
   token: telegramToken ?? null,
   maxFileBytes: 20 * 1024 * 1024,
+  ai,
 });
 
 app.post("/api/auth/signup", (req, res) => {
@@ -514,7 +527,8 @@ app.post("/api/telegram/disconnect", requireUser, (req, res) => {
 app.get("/api/telegram/inbox", requireUser, (req, res) => {
   const rows = db
     .prepare(
-      `SELECT id, source_name, text, media_kind, tg_date, created_at
+      `SELECT id, source_name, text, media_kind, tg_date, created_at,
+              ai_status, ai_title, ai_description, ai_steps
          FROM telegram_inbox
         WHERE user_id = ? AND status = 'new'
         ORDER BY created_at ASC`,
@@ -527,19 +541,38 @@ app.get("/api/telegram/inbox", requireUser, (req, res) => {
       WHERE m.inbox_id = ?
       ORDER BY m.position ASC`,
   );
-  const items = rows.map((r) => ({
-    id: r.id,
-    source: r.source_name,
-    text: r.text,
-    mediaKind: r.media_kind,
-    date: r.tg_date ? r.tg_date * 1000 : r.created_at,
-    attachments: mediaStmt.all(r.id).map((m) => ({
-      id: m.attachment_id,
-      name: m.name,
-      type: m.type,
-      size: m.size,
-    })),
-  }));
+  const items = rows.map((r) => {
+    let steps = [];
+    if (r.ai_steps) {
+      try {
+        steps = JSON.parse(r.ai_steps);
+      } catch {
+        steps = [];
+      }
+    }
+    return {
+      id: r.id,
+      source: r.source_name,
+      text: r.text,
+      mediaKind: r.media_kind,
+      date: r.tg_date ? r.tg_date * 1000 : r.created_at,
+      attachments: mediaStmt.all(r.id).map((m) => ({
+        id: m.attachment_id,
+        name: m.name,
+        type: m.type,
+        size: m.size,
+      })),
+      ai:
+        r.ai_status && r.ai_status !== "none"
+          ? {
+              status: r.ai_status,
+              title: r.ai_title ?? null,
+              description: r.ai_description ?? null,
+              steps: Array.isArray(steps) ? steps : [],
+            }
+          : null,
+    };
+  });
   res.json({ items });
 });
 
