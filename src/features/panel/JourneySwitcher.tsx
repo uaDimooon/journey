@@ -5,7 +5,11 @@
 import { useRef, useState } from "react";
 import { useJourneysStore } from "../../state/journeysStore";
 import { useGraphStore } from "../../state/graphStore";
-import { downloadJourney, parseJourneyFile } from "../../lib/journeyFile";
+import {
+  downloadJourney,
+  parseJourneyFile,
+  restoreAttachments,
+} from "../../lib/journeyFile";
 
 export function JourneySwitcher() {
   const journeys = useJourneysStore((s) => s.journeys);
@@ -27,6 +31,8 @@ export function JourneySwitcher() {
   const [error, setError] = useState<string | null>(null);
   const [mergeSourceId, setMergeSourceId] = useState<string>("");
   const [merging, setMerging] = useState(false);
+  // Progress for the (now async, byte-bundling) export/import.
+  const [busy, setBusy] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const startRename = () => {
@@ -53,20 +59,42 @@ export function JourneySwitcher() {
     setMode("idle");
   };
 
-  const onExport = () => {
-    if (!current) return;
-    // Export the current in-memory graph (includes unsaved edits).
-    downloadJourney(current.name, useGraphStore.getState().graph);
+  const onExport = async () => {
+    if (!current || busy) return;
+    setError(null);
+    try {
+      // Export the current in-memory graph (includes unsaved edits), bundling
+      // every referenced attachment's bytes so nothing is lost on re-import.
+      await downloadJourney(
+        current.name,
+        useGraphStore.getState().graph,
+        (done, total) =>
+          setBusy(total ? `Exporting… ${done}/${total} files` : "Exporting…"),
+      );
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
   };
 
   const onImportFile = async (file: File) => {
+    if (busy) return;
     setError(null);
+    setBusy("Reading file…");
     try {
       const text = await file.text();
-      const { name, graph } = parseJourneyFile(text);
-      await importJourney(name, graph);
+      const { name, graph, attachments } = parseJourneyFile(text);
+      // Re-upload bundled files and point the graph at the new attachment ids.
+      const restored = await restoreAttachments(graph, attachments, (done, total) =>
+        setBusy(`Restoring files… ${done}/${total}`),
+      );
+      setBusy("Creating journey…");
+      await importJourney(name, restored);
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -212,13 +240,19 @@ export function JourneySwitcher() {
             >
               Rename
             </button>
-            <button type="button" onClick={onExport} className="hover:text-white">
+            <button
+              type="button"
+              onClick={onExport}
+              disabled={!!busy}
+              className="hover:text-white disabled:opacity-50"
+            >
               Export
             </button>
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="hover:text-white"
+              disabled={!!busy}
+              className="hover:text-white disabled:opacity-50"
             >
               Import
             </button>
@@ -245,6 +279,7 @@ export function JourneySwitcher() {
       )}
 
       {error && <p className="text-[11px] text-red-400">{error}</p>}
+      {busy && <p className="text-[11px] text-sky-400">{busy}</p>}
 
       <input
         ref={fileInputRef}
