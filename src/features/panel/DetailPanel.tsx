@@ -1,6 +1,6 @@
 /** Left detail panel: binds to the selected node and the graph. */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useGraphStore } from "../../state/graphStore";
 import { useSelectionStore } from "../../state/selectionStore";
 import { useAuthStore } from "../../state/authStore";
@@ -8,7 +8,7 @@ import { incomingNodes } from "../../domain/graph";
 import { STATUS_HEX, STATUS_LABELS, STATUS_ORDER, nodeStatus } from "../../domain/status";
 import { linkify } from "../../lib/linkify";
 import { TraitEditor } from "../traits/TraitEditor";
-import { TraitExportModal } from "../traits/TraitExportModal";
+import { TraitExportModal, type ExportGoal } from "../traits/TraitExportModal";
 import { GoalCover } from "./GoalCover";
 import { OverviewList } from "./OverviewList";
 import { StatusDot } from "./StatusDot";
@@ -37,6 +37,22 @@ export function DetailPanel() {
   const logout = useAuthStore((s) => s.logout);
 
   const [showExport, setShowExport] = useState(false);
+
+  // The selected goal plus its subgoals (recursively), for the image/PDF export.
+  const exportSections = useMemo<ExportGoal[]>(() => {
+    if (!node) return [];
+    const out: ExportGoal[] = [];
+    const seen = new Set<string>();
+    const walk = (n: typeof node, depth: number) => {
+      if (!n || seen.has(n.id)) return;
+      seen.add(n.id);
+      out.push({ id: n.id, name: n.name, depth, traits: n.traits });
+      for (const sub of incomingNodes(graph, n.id)) walk(sub, depth + 1);
+    };
+    walk(node, 0);
+    return out;
+  }, [node, graph]);
+  const exportHasContent = exportSections.some((s) => s.traits.length > 0);
 
   return (
     <aside className="flex h-full w-80 shrink-0 flex-col gap-4 overflow-y-auto border-r border-neutral-800 bg-neutral-900 p-4">
@@ -97,20 +113,20 @@ export function DetailPanel() {
             />
           </div>
 
-          {node.traits.length > 0 && (
+          {exportHasContent && (
             <button
               type="button"
               onClick={() => setShowExport(true)}
               className="inline-flex w-fit items-center gap-1 self-start rounded bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700"
             >
-              🖼️ Export traits as image
+              🖼️ Export{subgoals.length > 0 ? " (with subgoals)" : ""} as image / PDF
             </button>
           )}
 
           {showExport && (
             <TraitExportModal
-              traits={node.traits}
-              nodeName={node.name}
+              sections={exportSections}
+              title={node.name}
               onClose={() => setShowExport(false)}
             />
           )}

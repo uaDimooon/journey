@@ -81,19 +81,68 @@ function flattenTraits(
   return out;
 }
 
+export interface ExportGoal {
+  id: Id;
+  name: string;
+  /** Nesting level: 0 for the selected goal, 1+ for subgoals. */
+  depth: number;
+  traits: Trait[];
+}
+
+type Entry =
+  | { kind: "goal"; goalId: Id; name: string; depth: number }
+  | { kind: "trait"; goalId: Id; trait: Trait; depth: number };
+
+type Block =
+  | { kind: "goal"; name: string; depth: number }
+  | { kind: "trait"; trait: Trait; depth: number; tiles: TraitAttachment[] };
+
 export function TraitExportModal({
-  traits,
-  nodeName,
+  sections,
+  title,
   onClose,
 }: {
-  traits: Trait[];
-  nodeName: string;
+  sections: ExportGoal[];
+  title: string;
   onClose: () => void;
 }) {
-  const flat = useMemo(() => flattenTraits(traits), [traits]);
-  // Which traits are included (including nested ones).
+  // Flatten goals + their (nested) traits into an ordered list of entries.
+  const entries = useMemo<Entry[]>(() => {
+    const out: Entry[] = [];
+    for (const g of sections) {
+      out.push({ kind: "goal", goalId: g.id, name: g.name, depth: g.depth });
+      for (const { trait, depth } of flattenTraits(g.traits)) {
+        out.push({
+          kind: "trait",
+          goalId: g.id,
+          trait,
+          depth: g.depth + 1 + depth,
+        });
+      }
+    }
+    return out;
+  }, [sections]);
+
+  const allGoalIds = useMemo(
+    () => sections.map((g) => g.id),
+    [sections],
+  );
+  const allTraitIds = useMemo(
+    () =>
+      entries.filter((e) => e.kind === "trait").map((e) => (e as { trait: Trait }).trait.id),
+    [entries],
+  );
+  const allImageIds = useMemo(
+    () =>
+      entries
+        .filter((e): e is Extract<Entry, { kind: "trait" }> => e.kind === "trait")
+        .flatMap((e) => extraImages(e.trait).map((a) => a.id)),
+    [entries],
+  );
+
+  // Included goals + traits (both keyed by id; ids are unique across the graph).
   const [included, setIncluded] = useState<Set<Id>>(
-    () => new Set(flat.map((x) => x.trait.id)),
+    () => new Set([...allGoalIds, ...allTraitIds]),
   );
   // Which extra images (by attachment id) are added to their trait.
   const [selectedImgs, setSelectedImgs] = useState<Set<Id>>(() => new Set());
@@ -103,12 +152,7 @@ export function TraitExportModal({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imgCache = useRef<Map<string, HTMLImageElement | null>>(new Map());
 
-  const allImageIds = useMemo(
-    () => flat.flatMap((x) => extraImages(x.trait).map((a) => a.id)),
-    [flat],
-  );
-
-  const toggleTrait = (id: Id) =>
+  const toggleOne = (id: Id) =>
     setIncluded((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -125,7 +169,7 @@ export function TraitExportModal({
     });
 
   const selectAll = () => {
-    setIncluded(new Set(flat.map((x) => x.trait.id)));
+    setIncluded(new Set([...allGoalIds, ...allTraitIds]));
     setSelectedImgs(new Set(allImageIds));
   };
   const deselectAll = () => {
@@ -140,21 +184,25 @@ export function TraitExportModal({
     return img;
   }, []);
 
-  // Build the ordered list of blocks to draw: every included trait (nested ones
-  // too), with its depth and the image tiles to show (cover first, then extras).
-  const buildBlocks = useCallback(() => {
-    return flat
-      .filter((x) => included.has(x.trait.id))
-      .map((x) => {
-        const chosen = extraImages(x.trait).filter((a) =>
-          selectedImgs.has(a.id),
-        );
+  // Build the ordered draw blocks: subgoal headings + included traits (a trait
+  // is only shown when both it and its owning goal are included).
+  const buildBlocks = useCallback((): Block[] => {
+    const out: Block[] = [];
+    for (const e of entries) {
+      if (e.kind === "goal") {
+        if (e.depth > 0 && included.has(e.goalId)) {
+          out.push({ kind: "goal", name: e.name, depth: e.depth });
+        }
+      } else if (included.has(e.goalId) && included.has(e.trait.id)) {
+        const chosen = extraImages(e.trait).filter((a) => selectedImgs.has(a.id));
         const tiles: TraitAttachment[] = [];
-        if (x.trait.cover) tiles.push(x.trait.cover);
-        for (const a of chosen) tiles.push(a);
-        return { trait: x.trait, depth: x.depth, tiles };
-      });
-  }, [flat, included, selectedImgs]);
+        if (e.trait.cover) tiles.push(e.trait.cover);
+        tiles.push(...chosen);
+        out.push({ kind: "trait", trait: e.trait, depth: e.depth, tiles });
+      }
+    }
+    return out;
+  }, [entries, included, selectedImgs]);
 
   const render = useCallback(async () => {
     const blocks = buildBlocks();
@@ -167,14 +215,16 @@ export function TraitExportModal({
     const CT = 60; // cover thumbnail (header)
     const IMG = 96; // gallery thumbnail
     const GAP = 8;
-    const BLOCK_GAP = 18;
+    const BLOCK_GAP = 14;
+    const GOAL_GAP = 22; // extra space before a subgoal heading
     const TITLE_LH = 22;
     const DESC_LH = 18;
+    const GOAL_LH = 24;
     const headerH0 = 54;
 
     // Preload every image used.
     const ids = new Set<string>();
-    for (const b of blocks) for (const t of b.tiles) ids.add(t.id);
+    for (const b of blocks) if (b.kind === "trait") for (const t of b.tiles) ids.add(t.id);
     const loaded = new Map<string, HTMLImageElement | null>();
     await Promise.all(
       [...ids].map(async (id) => loaded.set(id, await cachedImage(id))),
@@ -183,9 +233,47 @@ export function TraitExportModal({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Measure pass (text metrics are independent of canvas size).
-    const measured = blocks.map((b) => {
+    type MTrait = {
+      kind: "trait";
+      trait: Trait;
+      depth: number;
+      tiles: TraitAttachment[];
+      x: number;
+      lead: TraitAttachment | null;
+      textX: number;
+      titleLines: string[];
+      headerH: number;
+      descLines: string[];
+      gallery: TraitAttachment[];
+      perRow: number;
+      height: number;
+      topGap: number;
+    };
+    type MGoal = {
+      kind: "goal";
+      depth: number;
+      x: number;
+      lines: string[];
+      height: number;
+      topGap: number;
+    };
+
+    // Measure pass.
+    const measured: (MTrait | MGoal)[] = blocks.map((b, i) => {
+      const topGap = b.kind === "goal" && i > 0 ? GOAL_GAP : i > 0 ? BLOCK_GAP : 0;
       const x = P + b.depth * INDENT;
+      if (b.kind === "goal") {
+        ctx.font = `700 19px ${FONT}`;
+        const lines = wrapFull(ctx, b.name || "Goal", W - x - P);
+        return {
+          kind: "goal",
+          depth: b.depth,
+          x,
+          lines,
+          height: lines.length * GOAL_LH + 8,
+          topGap,
+        };
+      }
       const contentW = W - x - P;
       const lead = b.tiles[0] ?? null;
       const textX = x + (lead ? CT + 12 : 0);
@@ -204,9 +292,11 @@ export function TraitExportModal({
       const height =
         headerH + (descH ? 8 + descH : 0) + (galleryH ? 10 + galleryH : 0);
       return {
-        ...b,
+        kind: "trait",
+        trait: b.trait,
+        depth: b.depth,
+        tiles: b.tiles,
         x,
-        contentW,
         lead,
         textX,
         titleLines,
@@ -215,37 +305,41 @@ export function TraitExportModal({
         gallery,
         perRow,
         height,
+        topGap,
       };
     });
 
-    const totalH =
-      P +
-      headerH0 +
-      (measured.length
-        ? measured.reduce((s, m) => s + m.height + BLOCK_GAP, 0)
-        : 20);
+    const bodyH = measured.reduce((s, m) => s + m.topGap + m.height, 0);
+    const totalH = P + headerH0 + (measured.length ? bodyH : 20) + P;
 
     canvas.width = W * dpr;
-    canvas.height = totalH * dpr;
+    canvas.height = Math.max(1, totalH) * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     // Background
     ctx.fillStyle = "#0f1115";
-    ctx.fillRect(0, 0, W, totalH);
+    ctx.fillRect(0, 0, W, Math.max(1, totalH));
 
     // Header
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
     ctx.fillStyle = "#ffffff";
-    ctx.font = `600 24px ${FONT}`;
-    ctx.fillText(nodeName || "Traits", P, P + 24);
+    ctx.font = `700 24px ${FONT}`;
+    ctx.fillText(title || "Journey", P, P + 24);
     ctx.fillStyle = "#8a8f98";
     ctx.font = `400 13px ${FONT}`;
-    const imgCount = measured.reduce((n, m) => n + m.tiles.length, 0);
+    const goalCount = entries.filter(
+      (e) => e.kind === "goal" && included.has(e.goalId),
+    ).length;
+    const traitCount = measured.filter((m) => m.kind === "trait").length;
+    const imgCount = measured.reduce(
+      (n, m) => n + (m.kind === "trait" ? m.tiles.length : 0),
+      0,
+    );
     ctx.fillText(
-      `${measured.length} trait${measured.length === 1 ? "" : "s"} · ${imgCount} image${
-        imgCount === 1 ? "" : "s"
-      }`,
+      `${goalCount} goal${goalCount === 1 ? "" : "s"} · ${traitCount} trait${
+        traitCount === 1 ? "" : "s"
+      } · ${imgCount} image${imgCount === 1 ? "" : "s"}`,
       P,
       P + 46,
     );
@@ -287,7 +381,25 @@ export function TraitExportModal({
 
     let y = P + headerH0;
     for (const m of measured) {
-      // Depth guide line for nested traits.
+      y += m.topGap;
+
+      if (m.kind === "goal") {
+        // Subgoal heading with an accent bar.
+        ctx.fillStyle = "#38bdf8";
+        roundRect(ctx, m.x, y + 3, 4, m.lines.length * GOAL_LH - 2, 2);
+        ctx.fill();
+        ctx.fillStyle = "#e8eaed";
+        ctx.font = `700 19px ${FONT}`;
+        let gy = y + 19;
+        for (const ln of m.lines) {
+          ctx.fillText(ln, m.x + 12, gy);
+          gy += GOAL_LH;
+        }
+        y += m.height;
+        continue;
+      }
+
+      // Depth guide line for nested traits/subgoal content.
       if (m.depth > 0) {
         ctx.strokeStyle = "rgba(255,255,255,0.10)";
         ctx.lineWidth = 1;
@@ -337,11 +449,11 @@ export function TraitExportModal({
         });
       }
 
-      y += m.height + BLOCK_GAP;
+      y += m.height;
     }
 
     setPreviewUrl(canvas.toDataURL("image/png"));
-  }, [buildBlocks, nodeName, cachedImage]);
+  }, [buildBlocks, entries, included, title, cachedImage]);
 
   useEffect(() => {
     setRendering(true);
@@ -359,13 +471,13 @@ export function TraitExportModal({
   const hasContent = included.size > 0;
 
   const saveBlob = (blob: Blob, ext: string) => {
-    const safe = (nodeName || "traits")
+    const safe = (title || "journey")
       .replace(/[^\w-]+/g, "-")
       .replace(/^-+|-+$/g, "");
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${safe || "traits"}-traits.${ext}`;
+    a.download = `${safe || "journey"}-export.${ext}`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
@@ -399,7 +511,7 @@ export function TraitExportModal({
       >
         {/* Selection list */}
         <div className="flex w-72 shrink-0 flex-col gap-2">
-          <h2 className="text-sm font-semibold text-white">Export traits</h2>
+          <h2 className="text-sm font-semibold text-white">Export</h2>
           <div className="flex gap-2">
             <button
               type="button"
@@ -417,20 +529,47 @@ export function TraitExportModal({
             </button>
           </div>
           <ul className="flex flex-1 flex-col gap-1 overflow-y-auto pr-1">
-            {flat.map(({ trait: t, depth }) => {
+            {entries.map((e) => {
+              if (e.kind === "goal") {
+                const on = included.has(e.goalId);
+                return (
+                  <li
+                    key={e.goalId}
+                    style={{ marginLeft: e.depth * 12 }}
+                    className="mt-1 first:mt-0"
+                  >
+                    <label className="flex cursor-pointer items-center gap-2 rounded bg-neutral-800/60 px-1.5 py-1 text-xs font-semibold text-neutral-100">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => toggleOne(e.goalId)}
+                        className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-sky-500"
+                      />
+                      <span className="min-w-0 flex-1 truncate">
+                        {e.depth > 0 ? "↳ " : "🎯 "}
+                        {e.name || "Goal"}
+                      </span>
+                    </label>
+                  </li>
+                );
+              }
+              const t = e.trait;
               const extras = extraImages(t);
               const on = included.has(t.id);
+              const goalOn = included.has(e.goalId);
               return (
                 <li
                   key={t.id}
-                  className="rounded border border-neutral-800 bg-neutral-900/60 p-1.5"
-                  style={{ marginLeft: depth * 14 }}
+                  style={{ marginLeft: e.depth * 12 }}
+                  className={`rounded border border-neutral-800 bg-neutral-900/60 p-1.5 ${
+                    goalOn ? "" : "opacity-40"
+                  }`}
                 >
                   <label className="flex cursor-pointer items-center gap-2 text-xs text-neutral-200">
                     <input
                       type="checkbox"
                       checked={on}
-                      onChange={() => toggleTrait(t.id)}
+                      onChange={() => toggleOne(t.id)}
                       className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-sky-500"
                     />
                     {t.cover ? (
