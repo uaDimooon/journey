@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
+import { canvasToPdfBlob } from "../../lib/canvasPdf";
 import type { Id, Trait, TraitAttachment } from "../../domain/types";
 
 const FONT = "ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif";
@@ -98,6 +99,7 @@ export function TraitExportModal({
   const [selectedImgs, setSelectedImgs] = useState<Set<Id>>(() => new Set());
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [rendering, setRendering] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imgCache = useRef<Map<string, HTMLImageElement | null>>(new Map());
 
@@ -356,21 +358,34 @@ export function TraitExportModal({
 
   const hasContent = included.size > 0;
 
-  const download = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  const saveBlob = (blob: Blob, ext: string) => {
     const safe = (nodeName || "traits")
       .replace(/[^\w-]+/g, "-")
       .replace(/^-+|-+$/g, "");
-    canvas.toBlob((blob) => {
-      if (!blob) return;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${safe || "traits"}-traits.png`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }, "image/png");
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${safe || "traits"}-traits.${ext}`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const download = async (format: "png" | "pdf") => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    setExporting(true);
+    try {
+      if (format === "pdf") {
+        saveBlob(await canvasToPdfBlob(canvas), "pdf");
+      } else {
+        const blob = await new Promise<Blob | null>((res) =>
+          canvas.toBlob(res, "image/png"),
+        );
+        if (blob) saveBlob(blob, "png");
+      }
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
@@ -494,8 +509,16 @@ export function TraitExportModal({
             </button>
             <button
               type="button"
-              onClick={download}
-              disabled={!previewUrl || !hasContent || rendering}
+              onClick={() => download("pdf")}
+              disabled={!previewUrl || !hasContent || rendering || exporting}
+              className="rounded bg-neutral-700 px-3 py-1.5 text-sm font-medium text-neutral-100 hover:bg-neutral-600 disabled:opacity-40"
+            >
+              Download PDF
+            </button>
+            <button
+              type="button"
+              onClick={() => download("png")}
+              disabled={!previewUrl || !hasContent || rendering || exporting}
               className="rounded bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-40"
             >
               Download PNG
