@@ -4,7 +4,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { CanvasRenderer } from "../../render/CanvasRenderer";
-import { nodeIdAtClient } from "../../render/canvasBridge";
+import { createGoalAtClient, nodeIdAtClient } from "../../render/canvasBridge";
 import { useDragStore } from "../../state/dragStore";
 import { useGraphStore } from "../../state/graphStore";
 import { chooseCopyOrMove } from "../../state/chooseStore";
@@ -47,22 +47,43 @@ export function CanvasView() {
     useDragStore.getState().endTrait();
     if (!drag) return;
     const toNodeId = nodeIdAtClient(clientX, clientY);
-    if (!toNodeId || toNodeId === drag.fromNodeId) return;
+    if (toNodeId === drag.fromNodeId) return;
 
-    const graph = useGraphStore.getState().graph;
-    const targetName = graph.nodes[toNodeId]?.name ?? "goal";
+    if (toNodeId) {
+      // Dropped on an existing goal: reassign the trait to it.
+      const graph = useGraphStore.getState().graph;
+      const targetName = graph.nodes[toNodeId]?.name ?? "goal";
+      const choice = await chooseCopyOrMove(
+        `Move or copy "${drag.name}" to "${targetName}"?`,
+      );
+      if (!choice) return;
+      await transferTrait(drag, toNodeId, choice);
+      return;
+    }
+
+    // Dropped on empty canvas: create a new goal holding the trait.
     const choice = await chooseCopyOrMove(
-      `Move or copy "${drag.name}" to "${targetName}"?`,
+      `Move or copy "${drag.name}" into a new goal?`,
     );
     if (!choice) return;
+    const newGoalId = createGoalAtClient(clientX, clientY);
+    if (!newGoalId) return;
+    await transferTrait(drag, newGoalId, choice);
+  };
 
+  /** Move or copy a dragged trait onto a target goal. */
+  const transferTrait = async (
+    drag: { fromNodeId: string; traitId: string; name: string },
+    toNodeId: string,
+    choice: "move" | "copy",
+  ) => {
     const store = useGraphStore.getState();
     if (choice === "move") {
       store.moveTrait(drag.fromNodeId, drag.traitId, toNodeId);
       return;
     }
     // Copy: duplicate the trait with independent attachment/cover files.
-    const source = graph.nodes[drag.fromNodeId]?.traits.find(
+    const source = store.graph.nodes[drag.fromNodeId]?.traits.find(
       (t: Trait) => t.id === drag.traitId,
     );
     if (!source) return;
