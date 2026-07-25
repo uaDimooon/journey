@@ -20,7 +20,7 @@ import type { GraphNode, Id, Vec2 } from "../domain/types";
 import { useCameraStore } from "../state/cameraStore";
 import { useGraphStore } from "../state/graphStore";
 import { useSelectionStore } from "../state/selectionStore";
-import { setCanvasHitTest } from "./canvasBridge";
+import { setCanvasGoalCreator, setCanvasHitTest } from "./canvasBridge";
 import { api } from "../api/client";
 
 const DRAG_THRESHOLD = 4; // px
@@ -78,8 +78,12 @@ export class CanvasRenderer {
     });
     this.resizeObserver.observe(container);
 
-    // Let React drag-and-drop hit-test goal nodes on this canvas.
+    // Let React drag-and-drop hit-test goal nodes and drop traits onto empty
+    // canvas space (creating a new goal there).
     setCanvasHitTest((clientX, clientY) => this.nodeIdAtClient(clientX, clientY));
+    setCanvasGoalCreator((clientX, clientY) =>
+      this.createGoalAtClient(clientX, clientY),
+    );
 
     this.initialized = true;
     this.redraw();
@@ -88,6 +92,7 @@ export class CanvasRenderer {
   destroy(): void {
     this.destroyed = true;
     setCanvasHitTest(null);
+    setCanvasGoalCreator(null);
     this.unsub.forEach((fn) => fn());
     this.unsub = [];
     this.resizeObserver?.disconnect();
@@ -262,6 +267,21 @@ export class CanvasRenderer {
     const rect = this.app.canvas.getBoundingClientRect();
     const node = this.hitTest({ x: clientX - rect.left, y: clientY - rect.top });
     return node && node.kind === "goal" ? node.id : null;
+  }
+
+  /** Create a goal at a client-space point (mirrors double-click creation). */
+  createGoalAtClient(clientX: number, clientY: number): string | null {
+    if (!this.initialized) return null;
+    const rect = this.app.canvas.getBoundingClientRect();
+    const cam = this.cam;
+    const world = screenToWorld(
+      { x: clientX - rect.left, y: clientY - rect.top },
+      cam,
+      this.vp,
+    );
+    const pos = snapWorldToGrid(world, cam.zoom);
+    const size = goalWorldRadius(cam.zoom);
+    return useGraphStore.getState().addGoal(pos, size) ?? null;
   }
 
   /** A cover texture from cache, lazily loading (and redrawing) on first use.
