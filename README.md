@@ -8,6 +8,7 @@ grid canvas — a purposeful, directional mind map of who you want to become.
 - [docs/VISION.md](docs/VISION.md) — product vision and MVP scope
 - [docs/STACK.md](docs/STACK.md) — technology decisions
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — app architecture
+- [docs/TESTING.md](docs/TESTING.md) — testing strategy (proposed)
 
 ## Stack
 
