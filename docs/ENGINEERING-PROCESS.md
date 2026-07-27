@@ -120,13 +120,13 @@ a tiny script can grep tests and report uncovered requirement IDs.
 Phase 0 establishes the **requirements/domain foundation** so that the testing rollout
 (from `docs/TESTING.md`) can trace to named IDs from day one.
 
-- **Phase 0 — Docs foundation (start here)**
-  1. `docs/USE-CASES.md` — UC/REQ IDs derived from VISION + current features.
-  2. `docs/GLOSSARY.md` — ubiquitous language.
-  3. `docs/adr/` — migrate embedded decisions into numbered ADRs.
-  4. `docs/architecture/` — C4 Context + Component diagrams (Mermaid).
-  5. `docs/specs/_template.md` — the per-feature spec template.
-- **Phase 1–5 — Testing rollout** — as defined in `docs/TESTING.md`, with tests
+- **Phase 0 — Docs foundation (done)**
+  1. ✅ `docs/USE-CASES.md` — UC/REQ IDs derived from VISION + current features.
+  2. ✅ `docs/GLOSSARY.md` — ubiquitous language.
+  3. ✅ `docs/adr/` — embedded decisions migrated into numbered ADRs.
+  4. ✅ `docs/architecture/C4.md` — C4 Context + Container + Component diagrams (Mermaid).
+  5. ✅ `docs/specs/_template.md` — the per-feature spec template.
+- **Phase 1–5 — Testing rollout (next)** — as defined in `docs/TESTING.md`, with tests
   referencing the UC/REQ IDs from Phase 0.
 
 ---
