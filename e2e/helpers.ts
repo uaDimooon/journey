@@ -11,3 +11,12 @@ export async function signup(page: Page): Promise<string> {
   await expect(page.getByRole("button", { name: /log out/i })).toBeVisible();
   return email;
 }
+
+/** Wait until the canvas is mounted AND the renderer has finished its async
+ *  init (the dev-only test bridge is registered), so interactions are reliable. */
+export async function waitCanvasReady(page: Page): Promise<void> {
+  await expect(page.locator("main canvas")).toBeVisible();
+  await page.waitForFunction(() =>
+    Boolean((window as unknown as { __journeyTest?: unknown }).__journeyTest),
+  );
+}
