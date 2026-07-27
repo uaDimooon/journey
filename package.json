@@ -10,6 +10,9 @@
     "server:test": "JOURNEY_ENV=test node server/index.mjs",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -31,6 +34,7 @@
     "postcss": "^8.5.16",
     "tailwindcss": "^4.3.2",
     "typescript": "~6.0.2",
-    "vite": "^8.1.1"
+    "vite": "^8.1.1",
+    "vitest": "^3.2.7"
   }
 }
