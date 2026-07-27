@@ -13,6 +13,7 @@ import {
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
+import { pathToFileURL } from "node:url";
 import { createTelegram } from "./telegram.mjs";
 import { createAI } from "./ai.mjs";
 // Load environment variables from a local .env file if present (gitignored).
@@ -663,7 +664,16 @@ const PORT = process.env.PORT
   : isTest
     ? 8788
     : 8787;
-app.listen(PORT, () => {
-  console.log(`Journey API listening on http://localhost:${PORT}`);
-  telegram.start();
-});
+
+// Only start listening (and polling Telegram) when run directly, e.g.
+// `node server/index.mjs`. When imported by tests, just expose the app + db.
+const isMain =
+  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) {
+  app.listen(PORT, () => {
+    console.log(`Journey API listening on http://localhost:${PORT}`);
+    telegram.start();
+  });
+}
+
+export { app, db };
