@@ -1,5 +1,38 @@
 @import "tailwindcss";
 
+/* --- Design tokens -------------------------------------------------------
+ * Semantic UI tokens (the single source of truth for the DOM chrome). Values
+ * currently alias the existing palette so this refactor is visually a no-op;
+ * a Figma Variables export later re-skins the whole app by changing these.
+ * Tailwind 4 turns each --color-* into utilities (bg-panel, text-accent, …).
+ * The PixiJS canvas is drawn imperatively and should read these same values.
+ */
+@theme {
+  /* Surfaces */
+  --color-surface: #0f1115; /* app / canvas background */
+  --color-panel: #171717; /* raised panels, dialogs */
+  --color-field: #262626; /* inputs */
+  --color-control: #404040; /* secondary buttons */
+  --color-control-hover: #525252;
+  --color-border: #404040; /* borders / rings */
+  --color-border-subtle: #262626; /* quieter dividers / card borders */
+
+  /* Text (ink) */
+  --color-ink: #e5e5e5; /* primary */
+  --color-ink-muted: #a3a3a3; /* secondary */
+  --color-ink-subtle: #737373; /* tertiary */
+
+  /* Accent (brand) */
+  --color-accent: #0ea5e9;
+  --color-accent-strong: #0284c7; /* primary buttons */
+  --color-accent-hover: #0ea5e9;
+  --color-accent-link: #38bdf8;
+
+  /* Danger */
+  --color-danger: #ef4444;
+  --color-danger-muted: #f87171;
+}
+
 html,
 body,
 #root {
@@ -9,7 +42,7 @@ body,
 
 body {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  color: #e6e6e6;
-  background: #0f1115;
+  color: var(--color-ink);
+  background: var(--color-surface);
   overflow: hidden;
 }

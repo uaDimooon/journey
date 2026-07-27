@@ -25,29 +25,29 @@ export function CopyMoveDialog() {
       onClick={() => pick(null)}
     >
       <div
-        className="flex w-[320px] max-w-full flex-col gap-4 rounded-lg border border-neutral-700 bg-neutral-900 p-5 shadow-xl"
+        className="flex w-[320px] max-w-full flex-col gap-4 rounded-lg border border-border bg-panel p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <p className="text-sm text-neutral-200">{label}</p>
+        <p className="text-sm text-ink">{label}</p>
         <div className="flex items-center justify-end gap-2">
           <button
             type="button"
             onClick={() => pick(null)}
-            className="rounded px-3 py-1.5 text-sm text-neutral-400 hover:text-white"
+            className="rounded px-3 py-1.5 text-sm text-ink-muted hover:text-white"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={() => pick("copy")}
-            className="rounded bg-neutral-700 px-3 py-1.5 text-sm text-neutral-100 hover:bg-neutral-600"
+            className="rounded bg-control px-3 py-1.5 text-sm text-ink hover:bg-control-hover"
           >
             Copy
           </button>
           <button
             type="button"
             onClick={() => pick("move")}
-            className="rounded bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-500"
+            className="rounded bg-accent-strong px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover"
           >
             Move
           </button>
