@@ -32,5 +32,8 @@ jobs:
       - name: Unit & integration tests
         run: npm run test
 
+      - name: Backend tests
+        run: npm run test:server
+
       - name: Build
         run: npm run build
