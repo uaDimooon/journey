@@ -13,7 +13,7 @@ import {
   type Viewport,
 } from "../domain/geometry";
 import { hexToNumber } from "../domain/color";
-import { effectiveSizes } from "../domain/graph";
+import { effectiveSizes, nodeAtPoint } from "../domain/graph";
 import { STATUS_HEX, nodeStatus } from "../domain/status";
 import { stripMarkdownLinks } from "../lib/linkify";
 import type { GraphNode, Id, Vec2 } from "../domain/types";
@@ -247,18 +247,7 @@ export class CanvasRenderer {
   }
 
   private hitTest(screen: Vec2): GraphNode | null {
-    const { graph } = useGraphStore.getState();
-    const cam = this.cam;
-    const vp = this.vp;
-    const eff = effectiveSizes(graph);
-    let hit: GraphNode | null = null;
-    for (const node of Object.values(graph.nodes)) {
-      const p = worldToScreen(node.pos, cam, vp);
-      const r = this.nodeRadiusPx(node, eff, 8);
-      const dist = Math.hypot(screen.x - p.x, screen.y - p.y);
-      if (dist <= r) hit = node;
-    }
-    return hit;
+    return nodeAtPoint(useGraphStore.getState().graph, this.cam, this.vp, screen, 8);
   }
 
   /** Hit-test in client (viewport) coordinates. Returns a goal node id or null. */

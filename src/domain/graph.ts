@@ -2,7 +2,7 @@
 
 import type { Edge, Graph, GraphNode, Id, Trait, TraitAttachment, Vec2 } from "./types";
 import { randomColor } from "./color";
-import { BASE_NODE_RADIUS } from "./geometry";
+import { BASE_NODE_RADIUS, worldToScreen, type Camera, type Viewport } from "./geometry";
 
 let counter = 0;
 export function makeId(prefix = "n"): Id {
@@ -270,6 +270,32 @@ export function effectiveSizes(graph: Graph): Record<Id, number> {
 
   for (const id of Object.keys(graph.nodes)) eff(id);
   return memo;
+}
+
+/**
+ * The node whose rendered circle contains a screen-space point, or null.
+ *
+ * Pure counterpart of the renderer's hit-test: projects each node to screen via
+ * the camera, uses its effective size as the radius (clamped to `minPx` screen
+ * pixels so tiny/zoomed-out nodes stay clickable), and returns the last match in
+ * iteration order (later-drawn nodes win overlaps). Extracted from the Pixi
+ * renderer so it can be unit-tested without a browser.
+ */
+export function nodeAtPoint(
+  graph: Graph,
+  cam: Camera,
+  vp: Viewport,
+  screen: Vec2,
+  minPx = 8,
+): GraphNode | null {
+  const eff = effectiveSizes(graph);
+  let hit: GraphNode | null = null;
+  for (const node of Object.values(graph.nodes)) {
+    const p = worldToScreen(node.pos, cam, vp);
+    const r = Math.max(eff[node.id] * cam.zoom, minPx);
+    if (Math.hypot(screen.x - p.x, screen.y - p.y) <= r) hit = node;
+  }
+  return hit;
 }
 
 /** Would adding from -> to create a cycle? Keeps the graph a DAG. */
