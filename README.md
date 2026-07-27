@@ -12,6 +12,9 @@ grid canvas — a purposeful, directional mind map of who you want to become.
 - [docs/ENGINEERING-PROCESS.md](docs/ENGINEERING-PROCESS.md) — how we manage the growing project
 - [docs/USE-CASES.md](docs/USE-CASES.md) — use cases & requirements (traceability root)
 - [docs/GLOSSARY.md](docs/GLOSSARY.md) — ubiquitous language
+- [docs/architecture/C4.md](docs/architecture/C4.md) — C4 architecture diagrams
+- [docs/adr/](docs/adr/README.md) — architecture decision records
+- [docs/specs/](docs/specs/README.md) — feature specs
 
 ## Stack
 
