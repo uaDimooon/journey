@@ -39,3 +39,6 @@ server/*.db-*
 
 # Coverage output
 /coverage/
+
+*storybook.log
+storybook-static

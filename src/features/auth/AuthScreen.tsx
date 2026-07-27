@@ -29,10 +29,10 @@ export function AuthScreen() {
     <div className="flex h-full w-full items-center justify-center bg-neutral-950 p-6">
       <form
         onSubmit={submit}
-        className="w-full max-w-sm rounded-xl border border-neutral-800 bg-neutral-900 p-6 shadow-xl"
+        className="w-full max-w-sm rounded-xl border border-border-subtle bg-panel p-6 shadow-xl"
       >
         <h1 className="text-xl font-semibold text-white">Journey</h1>
-        <p className="mt-1 text-sm text-neutral-400">
+        <p className="mt-1 text-sm text-ink-muted">
           {mode === "login"
             ? "Log in to your journey."
             : "Create an account to save your journey."}
@@ -44,7 +44,7 @@ export function AuthScreen() {
           </div>
         )}
 
-        <label className="mt-4 block text-xs uppercase tracking-wide text-neutral-500">
+        <label className="mt-4 block text-xs uppercase tracking-wide text-ink-subtle">
           Email
         </label>
         <input
@@ -53,10 +53,10 @@ export function AuthScreen() {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
-          className="mt-1 w-full rounded bg-neutral-800 px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-sky-500"
+          className="mt-1 w-full rounded bg-field px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent"
         />
 
-        <label className="mt-4 block text-xs uppercase tracking-wide text-neutral-500">
+        <label className="mt-4 block text-xs uppercase tracking-wide text-ink-subtle">
           Password
         </label>
         <input
@@ -66,10 +66,10 @@ export function AuthScreen() {
           onChange={(e) => setPassword(e.target.value)}
           required
           minLength={8}
-          className="mt-1 w-full rounded bg-neutral-800 px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-sky-500"
+          className="mt-1 w-full rounded bg-field px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent"
         />
         {mode === "signup" && (
-          <p className="mt-1 text-xs text-neutral-500">
+          <p className="mt-1 text-xs text-ink-subtle">
             At least 8 characters.
           </p>
         )}
@@ -77,7 +77,7 @@ export function AuthScreen() {
         <button
           type="submit"
           disabled={busy}
-          className="mt-6 w-full rounded bg-sky-600 px-3 py-2 text-sm font-medium hover:bg-sky-500 disabled:opacity-50"
+          className="mt-6 w-full rounded bg-accent-strong px-3 py-2 text-sm font-medium hover:bg-accent-hover disabled:opacity-50"
         >
           {busy
             ? "Please wait…"
@@ -89,7 +89,7 @@ export function AuthScreen() {
         <button
           type="button"
           onClick={switchMode}
-          className="mt-3 w-full text-center text-xs text-neutral-400 hover:text-white"
+          className="mt-3 w-full text-center text-xs text-ink-muted hover:text-white"
         >
           {mode === "login"
             ? "No account? Sign up"
