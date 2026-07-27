@@ -238,6 +238,9 @@ const app = express();
 app.use(express.json({ limit: "4mb" }));
 app.use(cookieParser());
 
+// Unauthenticated liveness probe (used by deploy/health checks and E2E startup).
+app.get("/api/health", (req, res) => res.json({ ok: true }));
+
 // Telegram integration (disabled unless a bot token is set). The test
 // environment uses a separate token var so it never hijacks the real bot
 // (only one process may poll a given bot at a time).
