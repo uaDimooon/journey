@@ -21,6 +21,11 @@ dist-ssr
 server/*.db
 server/*.db-*
 
+# E2E (Playwright) artifacts + throwaway DB
+/test-results/
+/playwright-report/
+/e2e/.data/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

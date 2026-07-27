@@ -23,6 +23,18 @@ import { useSelectionStore } from "../state/selectionStore";
 import { setCanvasGoalCreator, setCanvasHitTest } from "./canvasBridge";
 import { api } from "../api/client";
 
+// Deterministic E2E bridge (dev builds only): lets Playwright target a node's
+// real on-screen position instead of scanning coordinates. See docs/TESTING.md.
+declare global {
+  interface Window {
+    __journeyTest?: {
+      screenPosOf(nodeId: string): { x: number; y: number } | null;
+      nodeIdAt(clientX: number, clientY: number): string | null;
+      selectedId(): string | null;
+    };
+  }
+}
+
 const DRAG_THRESHOLD = 4; // px
 
 export class CanvasRenderer {
@@ -85,6 +97,14 @@ export class CanvasRenderer {
       this.createGoalAtClient(clientX, clientY),
     );
 
+    if (import.meta.env.DEV) {
+      window.__journeyTest = {
+        screenPosOf: (id) => this.screenPosOf(id),
+        nodeIdAt: (x, y) => this.nodeIdAtClient(x, y),
+        selectedId: () => useSelectionStore.getState().selectedId,
+      };
+    }
+
     this.initialized = true;
     this.redraw();
   }
@@ -93,6 +113,7 @@ export class CanvasRenderer {
     this.destroyed = true;
     setCanvasHitTest(null);
     setCanvasGoalCreator(null);
+    if (import.meta.env.DEV) delete window.__journeyTest;
     this.unsub.forEach((fn) => fn());
     this.unsub = [];
     this.resizeObserver?.disconnect();
@@ -271,6 +292,16 @@ export class CanvasRenderer {
     const pos = snapWorldToGrid(world, cam.zoom);
     const size = goalWorldRadius(cam.zoom);
     return useGraphStore.getState().addGoal(pos, size) ?? null;
+  }
+
+  /** Client-space center of a node, for the E2E test bridge. */
+  screenPosOf(nodeId: string): { x: number; y: number } | null {
+    if (!this.initialized) return null;
+    const node = useGraphStore.getState().graph.nodes[nodeId];
+    if (!node) return null;
+    const rect = this.app.canvas.getBoundingClientRect();
+    const p = worldToScreen(node.pos, this.cam, this.vp);
+    return { x: rect.left + p.x, y: rect.top + p.y };
   }
 
   /** A cover texture from cache, lazily loading (and redrawing) on first use.
