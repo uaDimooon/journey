@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { signup } from "./helpers";
+import { signup, waitCanvasReady } from "./helpers";
 
 // Flagship E2E: dragging a trait onto another goal reassigns it (UC-9/REQ-9.2).
 // Uses the deterministic window.__journeyTest bridge to target a goal's REAL
@@ -11,7 +11,7 @@ test("UC-9/REQ-9.2: drag a trait onto another goal reassigns it (Move)", async (
 }) => {
   await signup(page);
   const canvas = page.locator("main canvas");
-  await expect(canvas).toBeVisible();
+  await waitCanvasReady(page);
   const box = (await canvas.boundingBox())!;
 
   // Create two goals by double-clicking two empty grid points. Each new goal is

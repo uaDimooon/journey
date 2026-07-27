@@ -11,6 +11,14 @@ export default defineConfig({
       provider: "v8",
       include: ["src/domain/**", "src/state/**", "src/lib/**"],
       reporter: ["text", "html"],
+      // Floor thresholds on the pure core (diagnostic + ratchet, not a target —
+      // see docs/TESTING.md). Raise these as coverage grows; never lower them.
+      thresholds: {
+        statements: 35,
+        branches: 80,
+        functions: 47,
+        lines: 35,
+      },
     },
     projects: [
       {

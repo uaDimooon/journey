@@ -111,9 +111,15 @@ export class CanvasRenderer {
 
   destroy(): void {
     this.destroyed = true;
-    setCanvasHitTest(null);
-    setCanvasGoalCreator(null);
-    if (import.meta.env.DEV) delete window.__journeyTest;
+    // Only clear the global registrations if THIS renderer actually installed
+    // them (i.e. it finished init). Otherwise a throwaway renderer from React
+    // StrictMode's double-mount — destroyed before it ever registered — would
+    // clobber the live renderer's hit-test, silently breaking canvas drops.
+    if (this.initialized) {
+      setCanvasHitTest(null);
+      setCanvasGoalCreator(null);
+      if (import.meta.env.DEV) delete window.__journeyTest;
+    }
     this.unsub.forEach((fn) => fn());
     this.unsub = [];
     this.resizeObserver?.disconnect();
