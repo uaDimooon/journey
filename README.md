@@ -9,6 +9,9 @@ grid canvas — a purposeful, directional mind map of who you want to become.
 - [docs/STACK.md](docs/STACK.md) — technology decisions
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — app architecture
 - [docs/TESTING.md](docs/TESTING.md) — testing strategy (proposed)
+- [docs/ENGINEERING-PROCESS.md](docs/ENGINEERING-PROCESS.md) — how we manage the growing project
+- [docs/USE-CASES.md](docs/USE-CASES.md) — use cases & requirements (traceability root)
+- [docs/GLOSSARY.md](docs/GLOSSARY.md) — ubiquitous language
 
 ## Stack
 
