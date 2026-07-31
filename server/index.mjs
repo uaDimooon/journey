@@ -523,15 +523,23 @@ if (config.isProd) {
 
 const PORT = config.port;
 
-// Only start listening (and polling Telegram) when run directly, e.g.
-// `node server/index.mjs`. When imported by tests, just expose the app + db.
-const isMain =
-  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
-if (isMain) {
-  app.listen(PORT, () => {
+// Start listening and begin polling Telegram. Called by the entry point
+// (server/start.mjs) or when this module is run directly. Tests import
+// { app, db } without calling start(), so they never open a port.
+function start() {
+  const server = app.listen(PORT, () => {
     console.log(`Journey API listening on http://localhost:${PORT}`);
     telegram.start();
   });
+  return server;
 }
 
-export { app, db };
+// Auto-start when run directly, e.g. `node server/index.mjs`. When imported
+// (tests, or server/start.mjs) this is skipped and start() is called explicitly.
+const isMain =
+  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) {
+  start();
+}
+
+export { app, db, start };
