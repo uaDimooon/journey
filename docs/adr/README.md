@@ -20,6 +20,7 @@ We use the Michael Nygard format: **Title · Status · Context · Decision · Co
 | [0002](0002-layered-mvvm-architecture.md) | Layered MVVM + pure domain + feature slices | Accepted |
 | [0003](0003-backend-express-node-sqlite.md) | Backend: Express + `node:sqlite` | Accepted |
 | [0004](0004-testing-tooling.md) | Testing tooling (Vitest + RTL/MSW + Playwright + node:test) | Proposed |
+| [0005](0005-portable-data-layer.md) | Portable data layer (config / storage / db seams) | Accepted |
 
 > These ADRs formalize decisions previously embedded in `docs/STACK.md`,
 > `docs/ARCHITECTURE.md`, and `docs/TESTING.md`.
