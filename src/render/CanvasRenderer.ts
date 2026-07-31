@@ -61,6 +61,11 @@ export class CanvasRenderer {
 
   async init(container: HTMLDivElement): Promise<void> {
     await this.app.init({
+      // Force WebGL (WebGL2). Pixi 8 otherwise prefers WebGPU, which renders
+      // fine in desktop Chrome but paints blank in Safari and often in private/
+      // incognito contexts (no automatic fallback once WebGPU "succeeds").
+      // WebGL2 is universally supported and our scene is renderer-agnostic.
+      preference: "webgl",
       background: "#0f1115",
       antialias: true,
       resizeTo: container,
