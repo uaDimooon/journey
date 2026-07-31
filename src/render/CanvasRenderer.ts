@@ -51,6 +51,12 @@ export class CanvasRenderer {
   private lastY = 0;
   private draggingId: string | null = null;
   private resizingId: string | null = null;
+  // Active (pressed) pointers by id — enables one-finger pan + two-finger pinch.
+  private pointers = new Map<number, { x: number; y: number }>();
+  private pinching = false;
+  private pinchDist = 0;
+  private pinchMidX = 0;
+  private pinchMidY = 0;
   private initialized = false;
   private destroyed = false;
 
@@ -152,12 +158,45 @@ export class CanvasRenderer {
     const canvas = this.app.canvas;
     canvas.style.touchAction = "none";
 
+    // Geometry helpers over the two active pinch pointers.
+    const twoPointers = () => [...this.pointers.values()];
+    const pinchDistance = () => {
+      const [a, b] = twoPointers();
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    };
+    const pinchMid = () => {
+      const [a, b] = twoPointers();
+      return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    };
+
     canvas.addEventListener("pointerdown", (e) => {
+      this.pointers.set(e.pointerId, { x: e.offsetX, y: e.offsetY });
       this.pointerDown = true;
+      try {
+        canvas.setPointerCapture(e.pointerId);
+      } catch {
+        /* pointer may already be gone (or synthetic) */
+      }
+
+      // A second finger starts a pinch — abandon any single-pointer interaction.
+      if (this.pointers.size === 2) {
+        this.pinching = true;
+        this.draggingId = null;
+        this.resizingId = null;
+        this.moved = true; // the eventual release is not a click
+        this.pinchDist = pinchDistance();
+        const m = pinchMid();
+        this.pinchMidX = m.x;
+        this.pinchMidY = m.y;
+        canvas.style.cursor = "default";
+        return;
+      }
+      if (this.pointers.size > 2) return;
+
+      // First finger: normal single-pointer behavior.
       this.moved = false;
       this.lastX = e.offsetX;
       this.lastY = e.offsetY;
-      canvas.setPointerCapture(e.pointerId);
 
       const linking = useSelectionStore.getState().linkingFrom;
       const selectedId = useSelectionStore.getState().selectedId;
@@ -185,10 +224,31 @@ export class CanvasRenderer {
     });
 
     canvas.addEventListener("pointermove", (e) => {
+      if (this.pointers.has(e.pointerId)) {
+        this.pointers.set(e.pointerId, { x: e.offsetX, y: e.offsetY });
+      }
+
+      // Two-finger pinch: zoom by the change in finger distance, pan by the
+      // midpoint movement.
+      if (this.pinching && this.pointers.size >= 2) {
+        const newDist = pinchDistance();
+        const m = pinchMid();
+        if (this.pinchDist > 0 && newDist > 0) {
+          useCameraStore.getState().zoomAt(newDist / this.pinchDist, m.x, m.y);
+        }
+        const pdx = m.x - this.pinchMidX;
+        const pdy = m.y - this.pinchMidY;
+        if (pdx || pdy) useCameraStore.getState().panBy(pdx, pdy);
+        this.pinchDist = newDist;
+        this.pinchMidX = m.x;
+        this.pinchMidY = m.y;
+        return;
+      }
+
       const dx = e.offsetX - this.lastX;
       const dy = e.offsetY - this.lastY;
 
-      // Hover feedback when idle.
+      // Hover feedback when idle (mouse move without a button).
       if (!this.pointerDown) {
         const selectedId = useSelectionStore.getState().selectedId;
         const selNode = selectedId
@@ -235,17 +295,35 @@ export class CanvasRenderer {
       }
     });
 
-    canvas.addEventListener("pointerup", (e) => {
+    const endPointer = (e: PointerEvent) => {
+      this.pointers.delete(e.pointerId);
+
+      // Lifting one finger of a pinch: keep panning from the finger that stays.
+      if (this.pointers.size === 1) {
+        this.pinching = false;
+        const [rem] = twoPointers();
+        this.lastX = rem.x;
+        this.lastY = rem.y;
+        this.moved = true; // continuation of a gesture, not a click
+        return;
+      }
+      if (this.pointers.size >= 2) return;
+
+      // All fingers up.
       const wasInteracting = this.draggingId !== null || this.resizingId !== null;
+      const wasPinching = this.pinching;
+      this.pinching = false;
       this.pointerDown = false;
       this.draggingId = null;
       this.resizingId = null;
       canvas.style.cursor = "default";
-      // Only treat as a click if it wasn't a node move/resize.
-      if (!this.moved && !wasInteracting) {
+      if (!this.moved && !wasInteracting && !wasPinching) {
         this.handleClick(e.offsetX, e.offsetY);
       }
-    });
+    };
+
+    canvas.addEventListener("pointerup", endPointer);
+    canvas.addEventListener("pointercancel", endPointer);
 
     canvas.addEventListener("wheel", (e) => {
       e.preventDefault();
