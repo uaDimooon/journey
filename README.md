@@ -15,6 +15,7 @@ grid canvas — a purposeful, directional mind map of who you want to become.
 - [docs/architecture/C4.md](docs/architecture/C4.md) — C4 architecture diagrams
 - [docs/adr/](docs/adr/README.md) — architecture decision records
 - [docs/specs/](docs/specs/README.md) — feature specs
+- [docs/DEPLOY.md](docs/DEPLOY.md) — deployment (home + Tailscale)
 
 ## Stack
 

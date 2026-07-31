@@ -82,6 +82,8 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 // --- App --------------------------------------------------------------------
 const app = express();
+// Behind an HTTPS proxy (Tailscale Serve / Caddy) so req.ip / protocol are real.
+if (config.trustProxy) app.set("trust proxy", 1);
 app.use(express.json({ limit: "4mb" }));
 app.use(cookieParser());
 
@@ -504,6 +506,20 @@ app.post("/api/instagram/inbox/:id/dismiss", requireUser, (req, res) => {
   }
   res.json({ ok: true });
 });
+
+// Unmatched API routes return JSON (never the SPA/HTML).
+app.use("/api", (req, res) => res.status(404).json({ error: "Not found." }));
+
+// In production, serve the built SPA from this same server so the app and API
+// share one origin (sessions "just work" across devices). In dev/test the Vite
+// dev server serves the SPA instead.
+if (config.isProd) {
+  app.use(express.static(config.distDir));
+  app.use((req, res, next) => {
+    if (req.method !== "GET" || req.path.startsWith("/api")) return next();
+    res.sendFile(config.indexHtml);
+  });
+}
 
 const PORT = config.port;
 

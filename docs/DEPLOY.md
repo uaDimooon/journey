@@ -1,0 +1,163 @@
+# Journey — Deployment
+
+Status: **Home + Tailscale (personal)**
+Last updated: 2026-07-30
+
+> Run Journey on a machine you own and reach it privately from your laptop and
+> phone over Tailscale. This is the "personal" stage; the public path (Turso/
+> Postgres + object storage) is described at the end. See ADR-0005 for why the
+> data + file backends are swappable.
+
+---
+
+## What Journey needs
+
+- **Node 26+** (uses the built-in `node:sqlite`).
+- A **persistent disk** for the SQLite DB + attachments (they live under
+  `~/.journey/` by default; override with `JOURNEY_DB_PATH`).
+- A **single always-on instance** (SQLite is one file, one process — do not run
+  multiple instances against the same DB).
+- **HTTPS** for the login cookie — provided here by `tailscale serve`.
+
+The same Express server serves both the API and the built SPA (same origin), so
+sessions work across devices with no CORS setup.
+
+---
+
+## 1. Build & run (bare metal)
+
+```sh
+git clone https://github.com/uaDimooon/journey.git
+cd journey
+npm ci
+npm run build          # builds the SPA into dist/
+npm start              # JOURNEY_ENV=production node server/index.mjs (port 8787)
+```
+
+Visit `http://localhost:8787` on the box to confirm it serves the app, and
+`http://localhost:8787/api/health` returns `{"ok":true}`.
+
+### Environment variables
+
+| Var | Purpose | Default |
+|---|---|---|
+| `JOURNEY_ENV` | `production` enables SPA serving + secure cookies | `development` |
+| `JOURNEY_DB_PATH` | DB file path (attachments go in a sibling `attachments/`) | `~/.journey/journey.db` |
+| `PORT` | HTTP port | `8787` |
+| `JOURNEY_COOKIE_SECURE` | `true`/`false` override for the Secure cookie flag | on in prod |
+| `JOURNEY_TRUST_PROXY` | trust an upstream HTTPS proxy for req IP/proto | on in prod |
+| `OPENAI_API_KEY`, `OPENAI_MODEL` | optional AI enrichment | unset (disabled) |
+| `TELEGRAM_BOT_TOKEN` | optional Telegram ingestion | unset (disabled) |
+
+Put secrets in a gitignored `.env` in the project root, or export them in the
+service unit (below).
+
+---
+
+## 2. Run as a service (systemd), so it survives reboots
+
+Create `/etc/systemd/system/journey.service`:
+
+```ini
+[Unit]
+Description=Journey
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/you/journey
+Environment=JOURNEY_ENV=production
+Environment=PORT=8787
+# Optional secrets:
+# Environment=OPENAI_API_KEY=sk-...
+# Environment=TELEGRAM_BOT_TOKEN=...
+ExecStart=/usr/bin/node server/index.mjs
+Restart=always
+User=you
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now journey
+systemctl status journey
+```
+
+---
+
+## 3. Reach it from anywhere with Tailscale
+
+Tailscale is a private mesh VPN — only your devices can see the service.
+
+```sh
+# On the host:
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+
+# Expose the app over HTTPS on your tailnet (gives it a *.ts.net name + cert):
+sudo tailscale serve --bg 8787
+```
+
+Then install the **Tailscale app** on your laptop and phone, sign in to the same
+tailnet, and open `https://<machine-name>.<your-tailnet>.ts.net`. Because that's
+HTTPS, the Secure session cookie works and you stay logged in.
+
+> Prefer a plain-HTTP tailnet address instead of `tailscale serve`? Set
+> `JOURNEY_COOKIE_SECURE=false` (login cookies can't be Secure over HTTP).
+
+---
+
+## 4. Backups (do this — it's one file)
+
+The DB (`journey.db`) and `attachments/` under `~/.journey/` are all your data.
+
+- **Simple:** a nightly copy via cron:
+  ```sh
+  0 3 * * *  cp -a ~/.journey ~/backups/journey-$(date +\%F)
+  ```
+- **Continuous (recommended if you value the data):** [Litestream](https://litestream.io)
+  streams the SQLite file to cloud storage (S3/R2) in near-real-time.
+
+---
+
+## 5. Updating
+
+```sh
+cd journey
+git pull
+npm ci
+npm run build
+sudo systemctl restart journey
+```
+
+---
+
+## Optional: Docker
+
+A `Dockerfile` is included for a container path (bind a volume to `/data`):
+
+```sh
+docker build -t journey .
+docker run -d --name journey -p 8787:8787 -v journey-data:/data journey
+```
+
+Run Tailscale on the **host** and `tailscale serve 8787` as above.
+
+---
+
+## Later: going public (web + mobile)
+
+Because config, DB, and file storage are isolated (ADR-0005), the public jump is
+contained:
+
+- **Database:** swap `server/db.mjs` for **Turso/libSQL** (SQLite-compatible,
+  minimal change) or **Postgres** (Neon/Supabase).
+- **Files:** swap `server/storage.mjs` for **S3 / Cloudflare R2**.
+- **Host:** Fly.io / Render (persistent volume) or a VPS + Caddy.
+- **Mobile:** the app is already a web app; add a PWA, and later wrap the same
+  SPA with Capacitor for the app stores.
+- **Add for public:** email verification + password reset, rate limiting,
+  monitoring/error tracking, and managed backups.
