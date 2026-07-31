@@ -17,7 +17,13 @@ import { TelegramConnect } from "../telegram/TelegramConnect";
 import { TelegramInbox } from "../telegram/TelegramInbox";
 import { InstagramInbox } from "../instagram/InstagramInbox";
 
-export function DetailPanel() {
+export function DetailPanel({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
   const graph = useGraphStore((s) => s.graph);
   const updateNode = useGraphStore((s) => s.updateNode);
   const removeNode = useGraphStore((s) => s.removeNode);
@@ -55,22 +61,36 @@ export function DetailPanel() {
   const exportHasContent = exportSections.some((s) => s.traits.length > 0);
 
   return (
-    <aside className="flex h-full w-80 shrink-0 flex-col gap-4 overflow-y-auto border-r border-neutral-800 bg-neutral-900 p-4">
+    <aside
+      className={`fixed inset-y-0 left-0 z-40 flex h-full w-[85vw] max-w-xs shrink-0 flex-col gap-4 overflow-y-auto border-r border-border-subtle bg-panel p-4 transition-transform duration-200 ease-out md:static md:z-auto md:w-80 md:max-w-none md:translate-x-0 md:transition-none ${
+        open ? "translate-x-0" : "-translate-x-full"
+      }`}
+    >
       <header>
         <div className="flex items-start justify-between gap-2">
           <h1 className="text-lg font-semibold text-white">Journey</h1>
-          <div className="text-right">
-            {userEmail && (
-              <p className="max-w-[9rem] truncate text-xs text-neutral-400">
-                {userEmail}
-              </p>
-            )}
+          <div className="flex items-start gap-2">
+            <div className="text-right">
+              {userEmail && (
+                <p className="max-w-[9rem] truncate text-xs text-neutral-400">
+                  {userEmail}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={() => logout()}
+                className="text-xs text-neutral-500 hover:text-white"
+              >
+                Log out
+              </button>
+            </div>
             <button
               type="button"
-              onClick={() => logout()}
-              className="text-xs text-neutral-500 hover:text-white"
+              onClick={onClose}
+              aria-label="Close panel"
+              className="-mr-1 rounded p-1 text-lg leading-none text-ink-muted hover:text-white md:hidden"
             >
-              Log out
+              ✕
             </button>
           </div>
         </div>
