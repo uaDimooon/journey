@@ -86,20 +86,42 @@ sudo systemctl enable --now journey
 systemctl status journey
 ```
 
+> **macOS host?** systemd is Linux-only. Run it in a terminal with `npm start`,
+> or keep it alive with a `launchd` plist or `pm2` (`npm i -g pm2 && pm2 start
+> "npm start" --name journey && pm2 save`).
+
 ---
 
 ## 3. Reach it from anywhere with Tailscale
 
 Tailscale is a private mesh VPN — only your devices can see the service.
 
-```sh
-# On the host:
-curl -fsSL https://tailscale.com/install.sh | sh
-sudo tailscale up
+**Install the CLI on the host:**
 
-# Expose the app over HTTPS on your tailnet (gives it a *.ts.net name + cert):
-sudo tailscale serve --bg 8787
+```sh
+# Linux:
+curl -fsSL https://tailscale.com/install.sh | sh
+
+# macOS (Homebrew) — the formula gives the `tailscale` CLI + daemon:
+brew install tailscale
+sudo brew services start tailscale      # starts tailscaled
 ```
+
+> The Linux `install.sh` one-liner does NOT work on macOS. On macOS you can
+> alternatively install the menu-bar app with `brew install --cask tailscale`,
+> but the Homebrew formula above keeps the `tailscale` CLI on your PATH, which
+> `tailscale serve` needs.
+
+**Connect and expose the app over HTTPS:**
+
+```sh
+sudo tailscale up                        # opens a browser to sign in
+sudo tailscale serve --bg 8787           # HTTPS proxy -> your app
+```
+
+`tailscale serve` needs HTTPS certificates enabled for your tailnet: in the
+[admin console](https://login.tailscale.com/admin/dns) turn on **MagicDNS** and
+**HTTPS Certificates** (one-time).
 
 Then install the **Tailscale app** on your laptop and phone, sign in to the same
 tailnet, and open `https://<machine-name>.<your-tailnet>.ts.net`. Because that's
@@ -107,6 +129,9 @@ HTTPS, the Secure session cookie works and you stay logged in.
 
 > Prefer a plain-HTTP tailnet address instead of `tailscale serve`? Set
 > `JOURNEY_COOKIE_SECURE=false` (login cookies can't be Secure over HTTP).
+
+> **Always-on note:** a laptop that sleeps is offline as a server. For 24/7
+> access use an always-on machine (Mac mini, Raspberry Pi, or a small Linux box).
 
 ---
 
