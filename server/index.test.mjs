@@ -169,3 +169,71 @@ describe("journeys (UC-2)", () => {
     assert.equal(got.status, 404);
   });
 });
+
+describe("attachments (storage layer)", () => {
+  /** Upload raw bytes (bypasses the JSON req helper). */
+  async function upload(cookie, bytes, name, type) {
+    const res = await fetch(
+      `${base}/api/attachments?name=${encodeURIComponent(name)}`,
+      { method: "POST", headers: { "Content-Type": type, Cookie: cookie }, body: bytes },
+    );
+    return { status: res.status, json: await res.json().catch(() => null) };
+  }
+
+  test("upload -> fetch bytes -> duplicate -> delete round-trip", async () => {
+    const { cookie } = await signup("files@b.com");
+    const bytes = Buffer.from([1, 2, 3, 4, 5]);
+
+    const up = await upload(cookie, bytes, "pic.bin", "application/octet-stream");
+    assert.equal(up.status, 200);
+    const id = up.json.attachment.id;
+    assert.equal(up.json.attachment.size, 5);
+
+    // Fetch the stored bytes back.
+    const get = await fetch(`${base}/api/attachments/${id}`, {
+      headers: { Cookie: cookie },
+    });
+    assert.equal(get.status, 200);
+    assert.deepEqual(new Uint8Array(await get.arrayBuffer()), new Uint8Array(bytes));
+
+    // Duplicate -> a new, independent id with the same metadata.
+    const dup = await req(`/api/attachments/${id}/duplicate`, {
+      method: "POST",
+      cookie,
+    });
+    assert.equal(dup.status, 200);
+    assert.notEqual(dup.json.attachment.id, id);
+    assert.equal(dup.json.attachment.size, 5);
+
+    // Delete the original; its bytes are gone (404), the copy still resolves.
+    const del = await req(`/api/attachments/${id}`, { method: "DELETE", cookie });
+    assert.equal(del.status, 200);
+    const gone = await fetch(`${base}/api/attachments/${id}`, {
+      headers: { Cookie: cookie },
+    });
+    assert.equal(gone.status, 404);
+    const copyStillThere = await fetch(
+      `${base}/api/attachments/${dup.json.attachment.id}`,
+      { headers: { Cookie: cookie } },
+    );
+    assert.equal(copyStillThere.status, 200);
+  });
+
+  test("rejects an empty upload", async () => {
+    const { cookie } = await signup("empty@b.com");
+    const up = await upload(cookie, Buffer.alloc(0), "empty.bin", "application/octet-stream");
+    assert.equal(up.status, 400);
+  });
+
+  test("attachments are owner-scoped", async () => {
+    const a = await signup("owner-a@b.com");
+    const up = await upload(a.cookie, Buffer.from([9]), "x.bin", "application/octet-stream");
+    const id = up.json.attachment.id;
+
+    const b = await signup("owner-b@b.com");
+    const got = await fetch(`${base}/api/attachments/${id}`, {
+      headers: { Cookie: b.cookie },
+    });
+    assert.equal(got.status, 404);
+  });
+});
