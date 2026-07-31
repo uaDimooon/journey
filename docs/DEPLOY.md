@@ -72,7 +72,7 @@ Environment=PORT=8787
 # Optional secrets:
 # Environment=OPENAI_API_KEY=sk-...
 # Environment=TELEGRAM_BOT_TOKEN=...
-ExecStart=/usr/bin/node server/index.mjs
+ExecStart=/usr/bin/node server/start.mjs
 Restart=always
 User=you
 
@@ -86,9 +86,19 @@ sudo systemctl enable --now journey
 systemctl status journey
 ```
 
-> **macOS host?** systemd is Linux-only. Run it in a terminal with `npm start`,
-> or keep it alive with a `launchd` plist or `pm2` (`npm i -g pm2 && pm2 start
-> "npm start" --name journey && pm2 save`).
+> **macOS host?** systemd is Linux-only. Keep it alive with **pm2**:
+>
+> ```sh
+> npm i -g pm2                                          # no sudo (Homebrew node)
+> JOURNEY_ENV=production pm2 start server/start.mjs --name journey
+> pm2 save                                             # remember it across restarts
+> pm2 startup                                          # prints a `sudo ...` line — run it once for start-on-boot
+> ```
+>
+> pm2 restarts the app if it crashes and (after `pm2 startup`) relaunches it on
+> reboot. Use `server/start.mjs` — not `"npm start"` — so pm2 tracks the node
+> process directly. `pm2 logs journey` tails output; `pm2 restart journey`
+> after pulling updates (rebuild `dist/` first).
 
 ---
 
